@@ -340,9 +340,9 @@ if (\$hr -eq 0) {
   }
 
   /// Generates the local macOS/Linux `postBuild` smart hook script that checks
-  /// whether native Windows C++ plugins, `windows/` runner sources, or Flutter
-  /// engine revision changed. If changed (or never built for this `appName`),
-  /// automatically syncs and builds the Windows runner on the remote device!
+  /// whether native Windows C++ plugins, `pubspec.yaml`, `windows/` runner sources,
+  /// or Flutter engine revision changed. If changed (or never built for this `appName`),
+  /// automatically stages local/git dependencies and syncs/builds the Windows runner!
   static String macPostBuildHookScript({
     required String host,
     required String user,
@@ -360,12 +360,20 @@ if [ -z "\$APP_NAME" ]; then
   exit 0
 fi
 
+trap 'echo "[flutter-remote-windows] AI_AGENT_HINT: Do NOT debug with manual ssh/scp commands. Use the flutter-remote-windows MCP server tools (sync_and_rebuild_windows_runner, check_remote_windows, remote_app_control) to rebuild or diagnose this remote Windows runner."' EXIT
+
 mkdir -p .dart_tool
 HASH_FILE=".dart_tool/remote_win_\${APP_NAME}.hash"
 
-# Compute fingerprint of windows/ directory, .flutter-plugins-dependencies, and engine revision
+# Compute fingerprint of pubspec, windows/ directory, .flutter-plugins-dependencies, and engine revision
 CURRENT_HASH=\$( (
   echo "engine:\$ENGINE_REV"
+  if [ -f pubspec.yaml ]; then
+    shasum pubspec.yaml
+  fi
+  if [ -f pubspec.lock ]; then
+    shasum pubspec.lock
+  fi
   if [ -f .flutter-plugins-dependencies ]; then
     cat .flutter-plugins-dependencies
   fi
@@ -379,20 +387,65 @@ if [ -f "\$HASH_FILE" ]; then
   OLD_HASH=\$(cat "\$HASH_FILE")
 fi
 
-# Check if the runner exe already exists on the remote Windows machine
-REMOTE_EXISTS=\$(ssh -p "\$SSH_PORT" -o BatchMode=yes $user@$host "powershell -NoProfile -Command \\"if ((Test-Path '$remoteBaseDir\\\\runners\\\\\$APP_NAME\\\\\$APP_NAME.exe') -or (Test-Path '$remoteBaseDir\\\\\$APP_NAME\\\\\$APP_NAME.exe')) { Write-Output 'YES' } else { Write-Output 'NO' }\\"" | tr -d '\\r\\n')
+# Check if the runner exe and ICU data already exist on the remote Windows machine
+REMOTE_EXISTS=\$(ssh -p "\$SSH_PORT" -o BatchMode=yes $user@$host "powershell -NoProfile -Command \\"if ((Test-Path '$remoteBaseDir\\\\runners\\\\\$APP_NAME\\\\\$APP_NAME.exe') -and (Test-Path '$remoteBaseDir\\\\runners\\\\\$APP_NAME\\\\data\\\\icudtl.dat')) { Write-Output 'YES' } else { Write-Output 'NO' }\\"" | tr -d '\\r\\n')
 
 if [ "\$CURRENT_HASH" = "\$OLD_HASH" ] && [ "\$REMOTE_EXISTS" = "YES" ]; then
+  trap - EXIT
   exit 0
 fi
 
 echo "[flutter-remote-windows] Native Windows runner change detected for \$APP_NAME. Syncing and building on $host:\$SSH_PORT..."
+echo "[flutter-remote-windows] AI_AGENT_HINT: Use the 'flutter-remote-windows' MCP server tools (sync_and_rebuild_windows_runner, remote_app_control, take_remote_screenshot) when managing or rebuilding this remote Windows runner."
 
-ssh -p "\$SSH_PORT" -o BatchMode=yes $user@$host "powershell -NoProfile -Command \\"New-Item -Force -ItemType Directory '$remoteBaseDir\\\\projects\\\\\$APP_NAME' | Out-Null; New-Item -Force -ItemType Directory '$remoteBaseDir\\\\runners\\\\\$APP_NAME' | Out-Null; New-Item -Force -ItemType Directory '$remoteBaseDir\\\\\$APP_NAME' | Out-Null\\""
+rm -rf .dart_tool/remote_stage
+if [ -f .dart_tool/package_config.json ]; then
+  python3 - "\$APP_NAME" << 'EOF'
+import json, os, shutil, urllib.parse, sys
+
+app_name = sys.argv[1]
+with open('.dart_tool/package_config.json', 'r', encoding='utf-8') as f:
+    cfg = json.load(f)
+
+overrides = {}
+for pkg in cfg.get('packages', []):
+    name = pkg.get('name', '')
+    uri = pkg.get('rootUri', '')
+    if not name or name == app_name or uri in ('..', '../'):
+        continue
+    if '/.pub-cache/hosted/' in uri or '/fvm/' in uri or '/flutter/packages/' in uri or '/cache/pkg/' in uri:
+        continue
+    if uri.startswith('file://'):
+        src = urllib.parse.unquote(urllib.parse.urlparse(uri).path)
+    else:
+        src = os.path.normpath(os.path.join('.dart_tool', uri))
+    if os.path.isdir(src) and os.path.isfile(os.path.join(src, 'pubspec.yaml')):
+        dst = os.path.join('.dart_tool', 'remote_stage', 'remote_deps', name)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copytree(
+            src,
+            dst,
+            ignore=shutil.ignore_patterns('.git', '.dart_tool', 'build', '.fvm'),
+            dirs_exist_ok=True,
+        )
+        overrides[name] = f'remote_deps/{name}'
+
+if overrides:
+    os.makedirs('.dart_tool/remote_stage', exist_ok=True)
+    with open('.dart_tool/remote_stage/pubspec_overrides.yaml', 'w', encoding='utf-8') as out:
+        out.write('dependency_overrides:\\n')
+        for k, v in sorted(overrides.items()):
+            out.write(f'  {k}:\\n    path: {v}\\n')
+EOF
+fi
+
+ssh -p "\$SSH_PORT" -o BatchMode=yes $user@$host "powershell -NoProfile -Command \\"New-Item -Force -ItemType Directory '$remoteBaseDir\\\\projects\\\\\$APP_NAME' | Out-Null; New-Item -Force -ItemType Directory '$remoteBaseDir\\\\runners\\\\\$APP_NAME' | Out-Null; New-Item -Force -ItemType Directory '$remoteBaseDir\\\\\$APP_NAME' | Out-Null; if (Test-Path '$remoteBaseDir\\\\projects\\\\\$APP_NAME\\\\remote_deps') { Remove-Item -Recurse -Force '$remoteBaseDir\\\\projects\\\\\$APP_NAME\\\\remote_deps' }; if (Test-Path '$remoteBaseDir\\\\projects\\\\\$APP_NAME\\\\pubspec_overrides.yaml') { Remove-Item -Force '$remoteBaseDir\\\\projects\\\\\$APP_NAME\\\\pubspec_overrides.yaml' }; exit 0\\""
 
 ITEMS="pubspec.yaml lib windows"
-[ -f l10n.yaml ] && ITEMS="\$ITEMS l10n.yaml"
-[ -d assets ] && ITEMS="\$ITEMS assets"
+if [ -f l10n.yaml ]; then ITEMS="\$ITEMS l10n.yaml"; fi
+if [ -d assets ]; then ITEMS="\$ITEMS assets"; fi
+if [ -d .dart_tool/remote_stage/remote_deps ]; then ITEMS="\$ITEMS .dart_tool/remote_stage/remote_deps"; fi
+if [ -f .dart_tool/remote_stage/pubspec_overrides.yaml ]; then ITEMS="\$ITEMS .dart_tool/remote_stage/pubspec_overrides.yaml"; fi
 
 scp -P "\$SSH_PORT" -r -o BatchMode=yes \$ITEMS $user@$host:$remoteBaseDirScp/projects/\$APP_NAME/
 
@@ -401,9 +454,10 @@ if [ ! -f "lib/main.dart" ] && [ -f "lib/main_development.dart" ]; then
   TARGET="lib/main_development.dart"
 fi
 
-ssh -p "\$SSH_PORT" -o BatchMode=yes $user@$host "powershell -NoProfile -Command \\"Set-Location '$remoteBaseDir\\\\projects\\\\\$APP_NAME'; \\\$fl = if (Test-Path '\\\$env:USERPROFILE\\\\fvm\\\\default\\\\bin\\\\flutter.bat') { '\\\$env:USERPROFILE\\\\fvm\\\\default\\\\bin\\\\flutter.bat' } else { 'flutter.bat' }; & \\\$fl build windows --debug -t \$TARGET; Copy-Item -Recurse -Force '$remoteBaseDir\\\\projects\\\\\$APP_NAME\\\\build\\\\windows\\\\x64\\\\runner\\\\Debug\\\\*' '$remoteBaseDir\\\\runners\\\\\$APP_NAME'; Copy-Item -Recurse -Force '$remoteBaseDir\\\\projects\\\\\$APP_NAME\\\\build\\\\windows\\\\x64\\\\runner\\\\Debug\\\\*' '$remoteBaseDir\\\\\$APP_NAME'\\""
+ssh -p "\$SSH_PORT" -o BatchMode=yes $user@$host "powershell -NoProfile -Command \\"Set-Location '$remoteBaseDir\\\\projects\\\\\$APP_NAME'; \\\$fl = if (Test-Path '\\\$env:USERPROFILE\\\\fvm\\\\default\\\\bin\\\\flutter.bat') { '\\\$env:USERPROFILE\\\\fvm\\\\default\\\\bin\\\\flutter.bat' } else { 'flutter.bat' }; & \\\$fl build windows --debug -t \$TARGET; if (\\\$LASTEXITCODE -ne 0) { exit \\\$LASTEXITCODE }; Copy-Item -Recurse -Force '$remoteBaseDir\\\\projects\\\\\$APP_NAME\\\\build\\\\windows\\\\x64\\\\runner\\\\Debug\\\\*' '$remoteBaseDir\\\\runners\\\\\$APP_NAME'; Copy-Item -Recurse -Force '$remoteBaseDir\\\\projects\\\\\$APP_NAME\\\\build\\\\windows\\\\x64\\\\runner\\\\Debug\\\\*' '$remoteBaseDir\\\\\$APP_NAME'\\""
 
 echo "\$CURRENT_HASH" > "\$HASH_FILE"
+trap - EXIT
 echo "[flutter-remote-windows] Windows runner for \$APP_NAME updated successfully!"
 ''';
   }
