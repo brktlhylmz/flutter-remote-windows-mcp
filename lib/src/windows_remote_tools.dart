@@ -5,17 +5,39 @@ import 'dart:io';
 import 'device_profile_store.dart';
 import 'powershell_templates.dart';
 
+/// Signature for executing external processes (`ssh`, `scp`, `flutter`, `ping`, `arp`).
+/// Allows unit tests to intercept and verify all system commands deterministically.
+typedef ProcessRunner = Future<ProcessResult> Function(
+  String executable,
+  List<String> arguments,
+);
+
 /// Implements the MCP tools for managing wireless and remote Flutter Windows devices.
 class WindowsRemoteTools {
-  WindowsRemoteTools({DeviceProfileStore? profileStore})
-      : _profileStore = profileStore ?? DeviceProfileStore();
+  WindowsRemoteTools({
+    DeviceProfileStore? profileStore,
+    ProcessRunner? processRunner,
+    String? homeDir,
+  })  : _profileStore = profileStore ?? DeviceProfileStore(),
+        _runProcess = processRunner ?? Process.run,
+        _homeDir = homeDir ?? (Platform.environment['HOME'] ?? '');
 
   final DeviceProfileStore _profileStore;
+  final ProcessRunner _runProcess;
+  final String _homeDir;
   HttpServer? _pairingServer;
   Timer? _pairingTimeout;
 
   /// Exposed for testing and inspection.
   DeviceProfileStore get profileStore => _profileStore;
+
+  /// Closes any active local HTTP pairing server and timer.
+  Future<void> close() async {
+    _pairingTimeout?.cancel();
+    _pairingTimeout = null;
+    await _pairingServer?.close(force: true);
+    _pairingServer = null;
+  }
 
   /// Returns the MCP tool definitions for `tools/list`.
   List<Map<String, Object?>> getToolDefinitions() {
@@ -625,7 +647,7 @@ class WindowsRemoteTools {
   Future<String> _generateSshPairing(Map<String, Object?> args) async {
     final port = (args['port'] as int?) ?? 8765;
     final timeoutSeconds = (args['timeout_seconds'] as int?) ?? 300;
-    final home = Platform.environment['HOME'] ?? '';
+    final home = _homeDir;
     final sshDir = Directory('$home/.ssh');
     if (!sshDir.existsSync()) {
       sshDir.createSync(recursive: true);
@@ -633,7 +655,7 @@ class WindowsRemoteTools {
 
     final pubKeyFile = File('$home/.ssh/id_ed25519.pub');
     if (!pubKeyFile.existsSync()) {
-      await Process.run('ssh-keygen', <String>[
+      await _runProcess('ssh-keygen', <String>[
         '-t',
         'ed25519',
         '-N',
@@ -786,7 +808,7 @@ Write-Output ("Sidekick installed with Desktop shortcut: " + $exe.FullName)
     if (installVs) {
       const vsCmd =
           'winget install --id=Microsoft.VisualStudio.2022.BuildTools -e --source winget --accept-source-agreements --accept-package-agreements --override "--quiet --wait --norestart --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"';
-      final res = await Process.run('ssh', <String>[
+      final res = await _runProcess('ssh', <String>[
         '-p',
         '${profile.sshPort}',
         '-o',
@@ -915,10 +937,10 @@ if (Test-Path $flutterBin) {
     );
 
     // 2. Enable custom-devices in Flutter
-    await Process.run('flutter', <String>['config', '--enable-custom-devices']);
+    await _runProcess('flutter', <String>['config', '--enable-custom-devices']);
 
     // 3. Create local postBuild smart hook script
-    final home = Platform.environment['HOME'] ?? '';
+    final home = _homeDir;
     final postBuildScriptPath = '$home/.config/flutter/post_build_$deviceId.sh';
     final postBuildFile = File(postBuildScriptPath);
     if (!postBuildFile.parent.existsSync()) {
@@ -933,7 +955,7 @@ if (Test-Path $flutterBin) {
         sshPort: sshPort,
       ),
     );
-    await Process.run('chmod', <String>['+x', postBuildScriptPath]);
+    await _runProcess('chmod', <String>['+x', postBuildScriptPath]);
 
     // 4. Create remote directories and upload Session 1 scripts
     final tempDir = Directory.systemTemp.createTempSync('flutter_remote_mcp_');
@@ -983,7 +1005,7 @@ if (Test-Path $flutterBin) {
         sshPort: sshPort,
       );
 
-      await Process.run('scp', <String>[
+      await _runProcess('scp', <String>[
         '-P',
         '$sshPort',
         '-o',
@@ -996,7 +1018,7 @@ if (Test-Path $flutterBin) {
         '$user@$host:$remoteBaseDirScp/',
       ]);
 
-      await Process.run('ssh', <String>[
+      await _runProcess('ssh', <String>[
         '-p',
         '$sshPort',
         '-o',
@@ -1092,7 +1114,7 @@ ${projectPath != null ? '- Updated $projectPath/.vscode/launch.json' : ''}
       }
     }
 
-    final scpRes = await Process.run('scp', <String>[
+    final scpRes = await _runProcess('scp', <String>[
       '-P',
       '$sshPort',
       '-r',
@@ -1180,7 +1202,7 @@ if (Test-Path "$remoteBaseDir\\screenshot.status") {
       return 'Screenshot blocked or failed on $host: $statusOut';
     }
 
-    final scpRes = await Process.run('scp', <String>[
+    final scpRes = await _runProcess('scp', <String>[
       '-P',
       '$sshPort',
       '-o',
@@ -1253,7 +1275,7 @@ Write-Output "Power mode restored to default timeouts."
         '$windowsHostname.local',
         windowsHostname,
       ]) {
-        final pingRes = await Process.run('ping', <String>[
+        final pingRes = await _runProcess('ping', <String>[
           '-c',
           '1',
           '-t',
@@ -1274,14 +1296,14 @@ Write-Output "Power mode restored to default timeouts."
 
     // 2. Fallback: check ARP table entries on local network
     if (discoveredIp == null) {
-      final arpRes = await Process.run('arp', <String>['-a']);
+      final arpRes = await _runProcess('arp', <String>['-a']);
       final matches = RegExp(r'\((\d+\.\d+\.\d+\.\d+)\)').allMatches(
         arpRes.stdout.toString(),
       );
       for (final m in matches) {
         final ip = m.group(1);
         if (ip == null || ip.endsWith('.255') || ip.endsWith('.1')) continue;
-        final sshCheck = await Process.run('ssh', <String>[
+        final sshCheck = await _runProcess('ssh', <String>[
           '-p',
           '$sshPort',
           '-o',
@@ -1364,7 +1386,7 @@ Write-Output "Power mode restored to default timeouts."
       }
     }
 
-    await Process.run('scp', <String>[
+    await _runProcess('scp', <String>[
       '-P',
       '$sshPort',
       '-r',
@@ -1400,7 +1422,7 @@ Write-Output "RELEASE_ZIP_READY"
     }
     final localZipPath = '${localBuildDir.path}/$appName-windows-release.zip';
 
-    final scpRes = await Process.run('scp', <String>[
+    final scpRes = await _runProcess('scp', <String>[
       '-P',
       '$sshPort',
       '-o',
@@ -1538,7 +1560,7 @@ Write-Output "RELEASE_ZIP_READY"
     }
 
     final res =
-        await Process.run('flutter', <String>['--version', '--machine']);
+        await _runProcess('flutter', <String>['--version', '--machine']);
     if (res.exitCode == 0) {
       try {
         final decoded = jsonDecode(res.stdout.toString().trim());
@@ -1582,7 +1604,7 @@ Write-Output "RELEASE_ZIP_READY"
     final encoded = base64Encode(
       _encodeUtf16Le(script),
     );
-    return Process.run('ssh', <String>[
+    return _runProcess('ssh', <String>[
       '-p',
       '$sshPort',
       '-o',
@@ -1625,7 +1647,7 @@ Write-Output "RELEASE_ZIP_READY"
     required String user,
     int sshPort = 22,
   }) {
-    final home = Platform.environment['HOME'] ?? '';
+    final home = _homeDir;
     final configFile = File('$home/.ssh/config');
     if (!configFile.parent.existsSync()) {
       configFile.parent.createSync(recursive: true);
@@ -1661,7 +1683,7 @@ Host $deviceId
     required String remoteBaseDirScp,
     String? postBuildScriptPath,
   }) {
-    final home = Platform.environment['HOME'] ?? '';
+    final home = _homeDir;
     final file = File('$home/.config/flutter/custom_devices.json');
     if (!file.parent.existsSync()) {
       file.parent.createSync(recursive: true);
@@ -1777,18 +1799,35 @@ Host $deviceId
     required String user,
     required String newIp,
   }) {
-    final home = Platform.environment['HOME'] ?? '';
+    final home = _homeDir;
     final ipRegex = RegExp(r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b');
 
     final customDevicesFile = File('$home/.config/flutter/custom_devices.json');
     if (customDevicesFile.existsSync()) {
-      final updated = customDevicesFile
-          .readAsStringSync()
-          .replaceAllMapped(ipRegex, (Match m) {
-        final ip = m.group(0)!;
-        return ip == '127.0.0.1' ? ip : newIp;
-      });
-      customDevicesFile.writeAsStringSync(updated);
+      try {
+        final decoded = jsonDecode(customDevicesFile.readAsStringSync());
+        if (decoded is Map<String, Object?> &&
+            decoded['custom-devices'] is List) {
+          final list = (decoded['custom-devices'] as List<Object?>).map((item) {
+            if (item is Map && item['id'] == deviceId) {
+              final encodedEntry = jsonEncode(item).replaceAllMapped(
+                ipRegex,
+                (Match m) {
+                  final ip = m.group(0)!;
+                  return ip == '127.0.0.1' ? ip : newIp;
+                },
+              );
+              return jsonDecode(encodedEntry);
+            }
+            return item;
+          }).toList();
+          decoded['custom-devices'] = list;
+          const encoder = JsonEncoder.withIndent('  ');
+          customDevicesFile.writeAsStringSync('${encoder.convert(decoded)}\n');
+        }
+      } on Object {
+        // Ignore malformed JSON
+      }
     }
 
     final postBuildFile = File('$home/.config/flutter/post_build_$deviceId.sh');
