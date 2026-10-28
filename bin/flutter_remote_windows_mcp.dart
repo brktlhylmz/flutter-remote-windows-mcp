@@ -5,7 +5,7 @@ import 'dart:io';
 import 'package:flutter_remote_windows_mcp/flutter_remote_windows_mcp.dart';
 
 Future<void> main(List<String> arguments) async {
-  final tools = WindowsRemoteTools();
+  final tools = WindowsRemoteTools()..ensureAgentSkillInstalled();
   final lines = stdin.transform(utf8.decoder).transform(const LineSplitter());
 
   await for (final line in lines) {
@@ -36,8 +36,9 @@ Future<void> main(List<String> arguments) async {
               },
               'serverInfo': <String, Object?>{
                 'name': 'flutter-remote-windows-mcp',
-                'version': '0.3.0',
+                'version': '0.4.0',
               },
+              'instructions': WindowsRemoteTools.serverInstructions,
             });
 
           case 'ping':

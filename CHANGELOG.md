@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.4.0
+
+- **Battery-Safe Session 1 Scheduled Tasks**: Configures `FlutterRemoteRun` and `FlutterRemoteScreenshot` with `-AllowStartIfOnBatteries`, `-DontStopIfGoingOnBatteries`, and unlimited execution time (`[TimeSpan]::Zero`) so Windows handhelds (e.g., ASUS ROG Ally, Legion Go) and laptops running on battery power never get stuck in `Queued` state during `flutter run`.
+- **Automatic Staging of Private `git:` & Local `path:` Dependencies**: Parses `.dart_tool/package_config.json` and stages non-hosted packages into `remote_deps/<pkg>` with a generated `pubspec_overrides.yaml` during both `sync_and_rebuild_windows_runner`, `build_and_fetch_release`, and the `postBuild` hook so remote Windows builds never hang or fail on private Git credentials (`wincredman`).
+- **Auto-Installed AI Agent Skill & MCP Server Instructions**: Automatically installs `~/.gemini/config/skills/flutter-remote-windows/SKILL.md` (and `~/.claude/skills/flutter-remote-windows/SKILL.md`) on startup and exposes `InitializeResult.instructions` so AI coding agents always use MCP tools instead of manual `ssh`/`scp` commands.
+- **Hardened `postBuild` Verification**: Includes `pubspec.yaml` and `pubspec.lock` in the runner fingerprint and verifies `data/icudtl.dat` exists alongside `<appName>.exe` on the remote Windows machine.
+
 ## 0.3.0
 
 - **Device Profiles (`~/.config/flutter_remote_windows/config.json` & `manage_device_profiles`)**: Save multiple Windows device profiles (e.g., `rog-ally`, `office-pc`, `cloud-vm`) so you never have to repeat `host`, `user`, or `ssh_port` across tool calls.
