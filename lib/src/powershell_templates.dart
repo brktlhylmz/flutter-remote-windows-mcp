@@ -19,8 +19,8 @@ Set-Content -Path "\$env:USERPROFILE\\.ssh\\authorized_keys" -Value \$k -Encodin
 Set-Content -Path "C:\\ProgramData\\ssh\\administrators_authorized_keys" -Value \$k -Encoding Ascii
 icacls.exe "C:\\ProgramData\\ssh\\administrators_authorized_keys" /inheritance:r /grant "*S-1-5-32-544:F" /grant "*S-1-5-18:F" | Out-Null
 Restart-Service sshd
-Write-Host "BASARILI! SSH eslestirmesi tamamlandi!" -ForegroundColor Green
-Write-Host ("Kullanici: " + (whoami)) -ForegroundColor Cyan
+Write-Host "SUCCESS! OpenSSH Server enabled and SSH key authorized!" -ForegroundColor Green
+Write-Host ("Windows User: " + (whoami)) -ForegroundColor Cyan
 ''';
   }
 

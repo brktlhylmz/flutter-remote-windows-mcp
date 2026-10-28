@@ -57,8 +57,7 @@ Future<void> main(List<String> arguments) async {
 
         case 'tools/call':
           final toolName = params['name'] as String?;
-          final toolArgs =
-              (params['arguments'] as Map<String, Object?>?) ??
+          final toolArgs = (params['arguments'] as Map<String, Object?>?) ??
               <String, Object?>{};
           if (toolName == null) {
             _sendError(id, -32602, 'Missing tool name');

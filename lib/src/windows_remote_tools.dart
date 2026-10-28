@@ -21,11 +21,13 @@ class WindowsRemoteTools {
           'properties': <String, Object?>{
             'port': <String, Object?>{
               'type': 'integer',
-              'description': 'Local HTTP port for serving the pairing script (default: 8765).',
+              'description':
+                  'Local HTTP port for serving the pairing script (default: 8765).',
             },
             'timeout_seconds': <String, Object?>{
               'type': 'integer',
-              'description': 'How long to keep the pairing server alive in seconds (default: 300).',
+              'description':
+                  'How long to keep the pairing server alive in seconds (default: 300).',
             },
           },
         },
@@ -39,11 +41,12 @@ class WindowsRemoteTools {
           'properties': <String, Object?>{
             'host': <String, Object?>{
               'type': 'string',
-              'description': 'IP address or hostname of the Windows device (e.g. 192.168.1.192).',
+              'description':
+                  'IP address or hostname of the Windows device (e.g. 192.168.1.50).',
             },
             'user': <String, Object?>{
               'type': 'string',
-              'description': 'Windows SSH username (e.g. burak).',
+              'description': 'Windows SSH username (e.g. devuser).',
             },
           },
           'required': <String>['host', 'user'],
@@ -66,19 +69,23 @@ class WindowsRemoteTools {
             },
             'install_fvm': <String, Object?>{
               'type': 'boolean',
-              'description': 'Install FVM CLI from GitHub Releases (default: true).',
+              'description':
+                  'Install FVM CLI from GitHub Releases (default: true).',
             },
             'install_sidekick': <String, Object?>{
               'type': 'boolean',
-              'description': 'Install Sidekick GUI from GitHub Releases and create Desktop shortcut (default: true).',
+              'description':
+                  'Install Sidekick GUI from GitHub Releases and create Desktop shortcut (default: true).',
             },
             'flutter_channel': <String, Object?>{
               'type': 'string',
-              'description': 'Flutter channel or version to install via FVM (default: "stable", pass "" to skip).',
+              'description':
+                  'Flutter channel or version to install via FVM (default: "stable", pass "" to skip).',
             },
             'install_vs_buildtools': <String, Object?>{
               'type': 'boolean',
-              'description': 'Install Microsoft Visual Studio 2022 Build Tools with VCTools workload via winget (default: false).',
+              'description':
+                  'Install Microsoft Visual Studio 2022 Build Tools with VCTools workload via winget (default: false).',
             },
           },
           'required': <String>['host', 'user'],
@@ -101,15 +108,18 @@ class WindowsRemoteTools {
             },
             'project_path': <String, Object?>{
               'type': 'string',
-              'description': 'Optional local project path to check .fvmrc and rebuild runner if version changed.',
+              'description':
+                  'Optional local project path to check .fvmrc and rebuild runner if version changed.',
             },
             'app_name': <String, Object?>{
               'type': 'string',
-              'description': 'Optional app binary name to rebuild runner if version changed.',
+              'description':
+                  'Optional app binary name to rebuild runner if version changed.',
             },
             'force': <String, Object?>{
               'type': 'boolean',
-              'description': 'Force reinstall/activate on Windows even if versions appear identical (default: false).',
+              'description':
+                  'Force reinstall/activate on Windows even if versions appear identical (default: false).',
             },
           },
           'required': <String>['host', 'user'],
@@ -124,35 +134,42 @@ class WindowsRemoteTools {
           'properties': <String, Object?>{
             'device_id': <String, Object?>{
               'type': 'string',
-              'description': 'Short device ID for flutter run -d <device_id> (e.g. "rog-ally").',
+              'description':
+                  'Short device ID for flutter run -d <device_id> (e.g. "rog-ally").',
             },
             'device_label': <String, Object?>{
               'type': 'string',
-              'description': 'Display name in flutter devices (e.g. "ASUS ROG Ally (Wireless)").',
+              'description':
+                  'Display name in flutter devices (e.g. "ASUS ROG Ally (Wireless)").',
             },
             'host': <String, Object?>{
               'type': 'string',
-              'description': 'IP address of the Windows device (e.g. 192.168.1.192).',
+              'description':
+                  'IP address of the Windows device (e.g. 192.168.1.50).',
             },
             'user': <String, Object?>{
               'type': 'string',
-              'description': 'Windows SSH username (e.g. burak).',
+              'description': 'Windows SSH username (e.g. devuser).',
             },
             'app_name': <String, Object?>{
               'type': 'string',
-              'description': 'Default Flutter application binary name (e.g. "gyrodeck_desktop").',
+              'description':
+                  'Default Flutter application binary name (e.g. "my_flutter_app").',
             },
             'enable_auto_post_build': <String, Object?>{
               'type': 'boolean',
-              'description': 'Enable the smart postBuild hook that automatically rebuilds the Windows C++ runner when plugins or windows/ files change (default: true).',
+              'description':
+                  'Enable the smart postBuild hook that automatically rebuilds the Windows C++ runner when plugins or windows/ files change (default: true).',
             },
             'project_path': <String, Object?>{
               'type': 'string',
-              'description': 'Optional absolute path to the local Flutter project to update .vscode/launch.json.',
+              'description':
+                  'Optional absolute path to the local Flutter project to update .vscode/launch.json.',
             },
             'target': <String, Object?>{
               'type': 'string',
-              'description': 'Optional Dart entrypoint for .vscode/launch.json (default: "lib/main.dart").',
+              'description':
+                  'Optional Dart entrypoint for .vscode/launch.json (default: "lib/main.dart").',
             },
           },
           'required': <String>['device_id', 'host', 'user', 'app_name'],
@@ -175,15 +192,18 @@ class WindowsRemoteTools {
             },
             'project_path': <String, Object?>{
               'type': 'string',
-              'description': 'Absolute path to the Flutter project on the local machine.',
+              'description':
+                  'Absolute path to the Flutter project on the local machine.',
             },
             'app_name': <String, Object?>{
               'type': 'string',
-              'description': 'Binary name of the Flutter app (e.g. "gyrodeck_desktop").',
+              'description':
+                  'Binary name of the Flutter app (e.g. "my_flutter_app").',
             },
             'target': <String, Object?>{
               'type': 'string',
-              'description': 'Dart entrypoint file (default: auto-detected from lib/main.dart or lib/main_development.dart).',
+              'description':
+                  'Dart entrypoint file (default: auto-detected from lib/main.dart or lib/main_development.dart).',
             },
           },
           'required': <String>['host', 'user', 'project_path', 'app_name'],
@@ -206,11 +226,13 @@ class WindowsRemoteTools {
             },
             'app_name': <String, Object?>{
               'type': 'string',
-              'description': 'Optional Flutter binary name (e.g. "gyrodeck_desktop"). Defaults to the currently active remote Flutter app.',
+              'description':
+                  'Optional Flutter binary name (e.g. "my_flutter_app"). Defaults to the currently active remote Flutter app.',
             },
             'output_path': <String, Object?>{
               'type': 'string',
-              'description': 'Local path on Mac to save the PNG screenshot (default: "/tmp/windows_remote_screenshot.png").',
+              'description':
+                  'Local path on Mac to save the PNG screenshot (default: "/tmp/windows_remote_screenshot.png").',
             },
           },
           'required': <String>['host', 'user'],
@@ -234,7 +256,8 @@ class WindowsRemoteTools {
             'mode': <String, Object?>{
               'type': 'string',
               'enum': <String>['keep_awake', 'restore_default'],
-              'description': '"keep_awake" disables sleep/display timeouts on AC & battery; "restore_default" sets 15m/30m timeouts.',
+              'description':
+                  '"keep_awake" disables sleep/display timeouts on AC & battery; "restore_default" sets 15m/30m timeouts.',
             },
           },
           'required': <String>['host', 'user', 'mode'],
@@ -243,21 +266,23 @@ class WindowsRemoteTools {
       <String, Object?>{
         'name': 'discover_and_update_ip',
         'description':
-            'Automatically finds the Windows device IP address on the local Wi-Fi network (via mDNS hostname like "bty-ally.local" or ARP/SSH scan) and updates ~/.ssh/config, custom_devices.json, and postBuild scripts.',
+            'Automatically finds the Windows device IP address on the local Wi-Fi network (via mDNS hostname like "windows-pc.local" or ARP/SSH scan) and updates ~/.ssh/config, custom_devices.json, and postBuild scripts.',
         'inputSchema': <String, Object?>{
           'type': 'object',
           'properties': <String, Object?>{
             'user': <String, Object?>{
               'type': 'string',
-              'description': 'Windows SSH username (e.g. burak).',
+              'description': 'Windows SSH username (e.g. devuser).',
             },
             'windows_hostname': <String, Object?>{
               'type': 'string',
-              'description': 'Windows machine hostname (default: "bty-ally").',
+              'description':
+                  'Optional Windows machine hostname (e.g. "rog-ally" or "windows-pc"). If omitted, scans ARP table for any host accepting SSH for user.',
             },
             'device_id': <String, Object?>{
               'type': 'string',
-              'description': 'Device ID in custom_devices.json (default: "rog-ally").',
+              'description':
+                  'Device ID in custom_devices.json (default: "rog-ally").',
             },
           },
           'required': <String>['user'],
@@ -288,7 +313,8 @@ class WindowsRemoteTools {
             },
             'target': <String, Object?>{
               'type': 'string',
-              'description': 'Dart entrypoint file for release build (default: auto-detected from lib/main_production.dart or lib/main.dart).',
+              'description':
+                  'Dart entrypoint file for release build (default: auto-detected from lib/main_production.dart or lib/main.dart).',
             },
           },
           'required': <String>['host', 'user', 'project_path', 'app_name'],
@@ -303,7 +329,13 @@ class WindowsRemoteTools {
           'properties': <String, Object?>{
             'action': <String, Object?>{
               'type': 'string',
-              'enum': <String>['status', 'logs', 'stop', 'launch_test', 'update_ip'],
+              'enum': <String>[
+                'status',
+                'logs',
+                'stop',
+                'launch_test',
+                'update_ip'
+              ],
               'description': 'Action to perform.',
             },
             'host': <String, Object?>{
@@ -316,11 +348,13 @@ class WindowsRemoteTools {
             },
             'app_name': <String, Object?>{
               'type': 'string',
-              'description': 'Flutter app binary name (default: "gyrodeck_desktop").',
+              'description':
+                  'Optional Flutter app binary name (defaults to the active app in active_app.txt).',
             },
             'device_id': <String, Object?>{
               'type': 'string',
-              'description': 'Device ID in custom_devices.json (used with update_ip, default: "rog-ally").',
+              'description':
+                  'Device ID in custom_devices.json (used with update_ip, default: "rog-ally").',
             },
             'new_ip': <String, Object?>{
               'type': 'string',
@@ -528,7 +562,8 @@ Write-Output ("Sidekick installed with Desktop shortcut: " + $exe.FullName)
     final appName = args['app_name'] as String?;
     final force = (args['force'] as bool?) ?? false;
 
-    final localInfo = await _getLocalFlutterVersionInfo(projectPath: projectPath);
+    final localInfo =
+        await _getLocalFlutterVersionInfo(projectPath: projectPath);
     final localVersion = localInfo['frameworkVersion'] ?? 'stable';
     final localEngine = localInfo['engineRevision'] ?? '';
 
@@ -595,7 +630,8 @@ if (Test-Path $flutterBin) {
     final host = args['host'] as String;
     final user = args['user'] as String;
     final appName = args['app_name'] as String;
-    final enableAutoPostBuild = (args['enable_auto_post_build'] as bool?) ?? true;
+    final enableAutoPostBuild =
+        (args['enable_auto_post_build'] as bool?) ?? true;
     final projectPath = args['project_path'] as String?;
     final target = (args['target'] as String?) ?? 'lib/main.dart';
 
@@ -685,7 +721,7 @@ if (Test-Path $flutterBin) {
         'BatchMode=yes',
         '$user@$host',
         'schtasks /Create /TN $scheduledTaskName /TR "powershell.exe -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File $remoteBaseDir\\session1_runner.ps1" /SC ONCE /ST 00:00 /IT /F && '
-        'schtasks /Create /TN $screenshotTaskName /TR "powershell.exe -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File $remoteBaseDir\\screenshot_session1.ps1" /SC ONCE /ST 00:00 /IT /F',
+            'schtasks /Create /TN $screenshotTaskName /TR "powershell.exe -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File $remoteBaseDir\\screenshot_session1.ps1" /SC ONCE /ST 00:00 /IT /F',
       ]);
     } finally {
       tempDir.deleteSync(recursive: true);
@@ -799,8 +835,8 @@ Write-Output "Runner updated in $remoteBaseDir\\runners\\$appName"
     final host = args['host'] as String;
     final user = args['user'] as String;
     final appName = (args['app_name'] as String?)?.trim() ?? '';
-    final outputPath =
-        (args['output_path'] as String?) ?? '/tmp/windows_remote_screenshot.png';
+    final outputPath = (args['output_path'] as String?) ??
+        '/tmp/windows_remote_screenshot.png';
     final remoteBaseDir = 'C:\\Users\\$user\\flutter_remote';
     final remoteBaseDirScp = 'C:/Users/$user/flutter_remote';
 
@@ -873,30 +909,32 @@ Write-Output "Power mode restored to default timeouts."
   Future<String> _discoverAndUpdateIp(Map<String, Object?> args) async {
     final user = args['user'] as String;
     final windowsHostname =
-        ((args['windows_hostname'] as String?) ?? 'bty-ally').toLowerCase();
+        ((args['windows_hostname'] as String?) ?? '').trim().toLowerCase();
     final deviceId = (args['device_id'] as String?) ?? 'rog-ally';
 
     String? discoveredIp;
 
-    // 1. Try mDNS (.local) or direct hostname resolution via ping
-    for (final candidate in <String>[
-      '$windowsHostname.local',
-      windowsHostname,
-    ]) {
-      final pingRes = await Process.run('ping', <String>[
-        '-c',
-        '1',
-        '-t',
-        '2',
-        candidate,
-      ]);
-      if (pingRes.exitCode == 0) {
-        final match = RegExp(r'\((\d+\.\d+\.\d+\.\d+)\)').firstMatch(
-          pingRes.stdout.toString(),
-        );
-        if (match != null) {
-          discoveredIp = match.group(1);
-          break;
+    // 1. Try mDNS (.local) or direct hostname resolution via ping if hostname was provided
+    if (windowsHostname.isNotEmpty) {
+      for (final candidate in <String>[
+        '$windowsHostname.local',
+        windowsHostname,
+      ]) {
+        final pingRes = await Process.run('ping', <String>[
+          '-c',
+          '1',
+          '-t',
+          '2',
+          candidate,
+        ]);
+        if (pingRes.exitCode == 0) {
+          final match = RegExp(r'\((\d+\.\d+\.\d+\.\d+)\)').firstMatch(
+            pingRes.stdout.toString(),
+          );
+          if (match != null) {
+            discoveredIp = match.group(1);
+            break;
+          }
         }
       }
     }
@@ -918,17 +956,21 @@ Write-Output "Power mode restored to default timeouts."
           '$user@$ip',
           'hostname',
         ]);
-        if (sshCheck.exitCode == 0 &&
-            sshCheck.stdout.toString().trim().toLowerCase() ==
-                windowsHostname) {
-          discoveredIp = ip;
-          break;
+        if (sshCheck.exitCode == 0) {
+          final remoteHost = sshCheck.stdout.toString().trim().toLowerCase();
+          if (windowsHostname.isEmpty || remoteHost == windowsHostname) {
+            discoveredIp = ip;
+            break;
+          }
         }
       }
     }
 
     if (discoveredIp == null) {
-      return 'Could not automatically discover IP for hostname "$windowsHostname" on the local network.';
+      final targetLabel = windowsHostname.isEmpty
+          ? 'user "$user"'
+          : 'hostname "$windowsHostname"';
+      return 'Could not automatically discover IP for $targetLabel on the local network.';
     }
 
     _upsertSshConfig(deviceId: deviceId, host: discoveredIp, user: user);
@@ -938,7 +980,7 @@ Write-Output "Power mode restored to default timeouts."
       newIp: discoveredIp,
     );
 
-    return 'Discovered "$windowsHostname" at IP $discoveredIp and updated ~/.ssh/config, custom_devices.json, and postBuild hook!';
+    return 'Discovered Windows device at IP $discoveredIp and updated ~/.ssh/config, custom_devices.json, and postBuild hook!';
   }
 
   Future<String> _buildAndFetchRelease(Map<String, Object?> args) async {
@@ -953,7 +995,8 @@ Write-Output "Power mode restored to default timeouts."
     final remoteProjectDir = '$remoteBaseDir\\projects\\$appName';
     final remoteProjectScp = 'C:/Users/$user/flutter_remote/projects/$appName';
     final remoteZipPath = '$remoteBaseDir\\$appName-windows-release.zip';
-    final remoteZipScp = 'C:/Users/$user/flutter_remote/$appName-windows-release.zip';
+    final remoteZipScp =
+        'C:/Users/$user/flutter_remote/$appName-windows-release.zip';
 
     await _runSshPowerShell(
       host,
@@ -1021,9 +1064,22 @@ Write-Output "RELEASE_ZIP_READY"
     final action = args['action'] as String;
     final host = args['host'] as String;
     final user = args['user'] as String;
-    final appName = (args['app_name'] as String?) ?? 'gyrodeck_desktop';
+    final explicitAppName = (args['app_name'] as String?)?.trim() ?? '';
     final deviceId = (args['device_id'] as String?) ?? 'rog-ally';
     final remoteBaseDir = 'C:\\Users\\$user\\flutter_remote';
+
+    var appName = explicitAppName;
+    if (appName.isEmpty && action != 'update_ip') {
+      final activeRes = await _runSshPowerShell(
+        host,
+        user,
+        'if (Test-Path "$remoteBaseDir\\active_app.txt") { (Get-Content "$remoteBaseDir\\active_app.txt" -Raw).Trim() }',
+      );
+      appName = activeRes.stdout.toString().trim();
+      if (appName.isEmpty) {
+        appName = 'my_flutter_app';
+      }
+    }
 
     switch (action) {
       case 'status':
@@ -1112,13 +1168,15 @@ Write-Output "RELEASE_ZIP_READY"
       }
     }
 
-    final res = await Process.run('flutter', <String>['--version', '--machine']);
+    final res =
+        await Process.run('flutter', <String>['--version', '--machine']);
     if (res.exitCode == 0) {
       try {
         final decoded = jsonDecode(res.stdout.toString().trim());
         if (decoded is Map<String, Object?>) {
           return <String, String>{
-            'frameworkVersion': (decoded['frameworkVersion'] as String?) ?? 'stable',
+            'frameworkVersion':
+                (decoded['frameworkVersion'] as String?) ?? 'stable',
             'engineRevision': (decoded['engineRevision'] as String?) ?? '',
           };
         }
@@ -1199,7 +1257,8 @@ Write-Output "RELEASE_ZIP_READY"
     if (!configFile.parent.existsSync()) {
       configFile.parent.createSync(recursive: true);
     }
-    final existing = configFile.existsSync() ? configFile.readAsStringSync() : '';
+    final existing =
+        configFile.existsSync() ? configFile.readAsStringSync() : '';
     final block = '''
 Host $deviceId
     HostName $host
@@ -1245,7 +1304,8 @@ Host $deviceId
       }
     }
 
-    final devices = (root['custom-devices'] as List<Object?>?)?.toList() ?? <Object?>[];
+    final devices =
+        (root['custom-devices'] as List<Object?>?)?.toList() ?? <Object?>[];
     devices.removeWhere(
       (Object? d) => d is Map && d['id'] == deviceId,
     );
@@ -1344,9 +1404,10 @@ Host $deviceId
     final postBuildFile = File('$home/.config/flutter/post_build_$deviceId.sh');
     if (postBuildFile.existsSync()) {
       final updated = postBuildFile.readAsStringSync().replaceAllMapped(
-        RegExp(RegExp.escape(user) + r'@\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}'),
-        (_) => '$user@$newIp',
-      );
+            RegExp(
+                RegExp.escape(user) + r'@\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}'),
+            (_) => '$user@$newIp',
+          );
       postBuildFile.writeAsStringSync(updated);
     }
   }
@@ -1365,17 +1426,17 @@ Host $deviceId
       const encoder = JsonEncoder.withIndent('  ');
       file.writeAsStringSync(
         '${encoder.convert(<String, Object?>{
-          'version': '0.2.0',
-          'configurations': <Object?>[
-            <String, Object?>{
-              'name': 'Launch $deviceLabel',
-              'request': 'launch',
-              'type': 'dart',
-              'deviceId': deviceId,
-              'program': target,
-            },
-          ],
-        })}\n',
+              'version': '0.2.0',
+              'configurations': <Object?>[
+                <String, Object?>{
+                  'name': 'Launch $deviceLabel',
+                  'request': 'launch',
+                  'type': 'dart',
+                  'deviceId': deviceId,
+                  'program': target,
+                },
+              ],
+            })}\n',
       );
     }
   }
