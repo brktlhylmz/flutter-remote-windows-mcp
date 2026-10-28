@@ -3,7 +3,7 @@ import 'dart:io';
 
 /// Represents a saved remote Windows device profile in
 /// `~/.config/flutter_remote_windows/config.json`.
-class DeviceProfile {
+final class DeviceProfile {
   const DeviceProfile({
     required this.deviceId,
     required this.label,
@@ -17,15 +17,38 @@ class DeviceProfile {
 
   factory DeviceProfile.fromJson(Map<String, Object?> json) {
     return DeviceProfile(
-      deviceId: (json['device_id'] as String?) ?? 'windows-remote',
-      label: (json['label'] as String?) ?? 'Windows Remote Device',
-      host: (json['host'] as String?) ?? '',
-      user: (json['user'] as String?) ?? '',
-      sshPort: (json['ssh_port'] as int?) ?? 22,
-      useTcpPing: (json['use_tcp_ping'] as bool?) ?? true,
-      keepHeadlessSessionAlive:
-          (json['keep_headless_session_alive'] as bool?) ?? false,
-      defaultAppName: json['default_app_name'] as String?,
+      deviceId: switch (json['device_id']) {
+        final String s when s.isNotEmpty => s,
+        _ => 'windows-remote',
+      },
+      label: switch (json['label']) {
+        final String s when s.isNotEmpty => s,
+        _ => 'Windows Remote Device',
+      },
+      host: switch (json['host']) {
+        final String s => s,
+        _ => '',
+      },
+      user: switch (json['user']) {
+        final String s => s,
+        _ => '',
+      },
+      sshPort: switch (json['ssh_port']) {
+        final int p => p,
+        _ => 22,
+      },
+      useTcpPing: switch (json['use_tcp_ping']) {
+        final bool b => b,
+        _ => true,
+      },
+      keepHeadlessSessionAlive: switch (json['keep_headless_session_alive']) {
+        final bool b => b,
+        _ => false,
+      },
+      defaultAppName: switch (json['default_app_name']) {
+        final String s when s.isNotEmpty => s,
+        _ => null,
+      },
     );
   }
 
@@ -70,14 +93,14 @@ class DeviceProfile {
       'ssh_port': sshPort,
       'use_tcp_ping': useTcpPing,
       'keep_headless_session_alive': keepHeadlessSessionAlive,
-      if (defaultAppName != null && defaultAppName!.isNotEmpty)
-        'default_app_name': defaultAppName,
+      if (defaultAppName case final String app when app.isNotEmpty)
+        'default_app_name': app,
     };
   }
 }
 
 /// Manages reading and writing `~/.config/flutter_remote_windows/config.json`.
-class DeviceProfileStore {
+final class DeviceProfileStore {
   DeviceProfileStore({String? configFilePath})
       : _configFilePath = configFilePath ?? _defaultConfigPath();
 
@@ -101,8 +124,8 @@ class DeviceProfileStore {
       };
     }
     try {
-      final decoded = jsonDecode(file.readAsStringSync());
-      if (decoded is Map<String, Object?>) {
+      if (jsonDecode(file.readAsStringSync())
+          case final Map<String, Object?> decoded) {
         return Map<String, Object?>.from(decoded);
       }
     } on Object {
@@ -123,21 +146,18 @@ class DeviceProfileStore {
     file.writeAsStringSync('${encoder.convert(data)}\n');
   }
 
-  String? getDefaultDeviceId() {
-    final raw = _readRaw();
-    return raw['default_device'] as String?;
-  }
+  String? getDefaultDeviceId() => switch (_readRaw()['default_device']) {
+        final String s when s.isNotEmpty => s,
+        _ => null,
+      };
 
   Map<String, DeviceProfile> listProfiles() {
     final raw = _readRaw();
-    final devicesMap = raw['devices'];
     final result = <String, DeviceProfile>{};
-    if (devicesMap is Map<String, Object?>) {
-      for (final entry in devicesMap.entries) {
-        if (entry.value is Map<String, Object?>) {
-          result[entry.key] = DeviceProfile.fromJson(
-            Map<String, Object?>.from(entry.value! as Map<String, Object?>),
-          );
+    if (raw['devices'] case final Map<String, Object?> devicesMap) {
+      for (final MapEntry(:key, :value) in devicesMap.entries) {
+        if (value case final Map<String, Object?> profileJson) {
+          result[key] = DeviceProfile.fromJson(profileJson);
         }
       }
     }
@@ -146,9 +166,10 @@ class DeviceProfileStore {
 
   void upsertProfile(DeviceProfile profile, {bool setAsDefault = false}) {
     final raw = _readRaw();
-    final devices = (raw['devices'] is Map<String, Object?>)
-        ? Map<String, Object?>.from(raw['devices']! as Map<String, Object?>)
-        : <String, Object?>{};
+    final devices = switch (raw['devices']) {
+      final Map<String, Object?> m => Map<String, Object?>.from(m),
+      _ => <String, Object?>{},
+    };
     devices[profile.deviceId] = profile.toJson();
     raw['devices'] = devices;
     if (setAsDefault || raw['default_device'] == null) {
@@ -159,9 +180,10 @@ class DeviceProfileStore {
 
   bool setDefaultDevice(String deviceId) {
     final raw = _readRaw();
-    final devices = (raw['devices'] is Map<String, Object?>)
-        ? Map<String, Object?>.from(raw['devices']! as Map<String, Object?>)
-        : <String, Object?>{};
+    final devices = switch (raw['devices']) {
+      final Map<String, Object?> m => Map<String, Object?>.from(m),
+      _ => <String, Object?>{},
+    };
     if (!devices.containsKey(deviceId)) {
       return false;
     }
@@ -172,9 +194,10 @@ class DeviceProfileStore {
 
   bool removeProfile(String deviceId) {
     final raw = _readRaw();
-    final devices = (raw['devices'] is Map<String, Object?>)
-        ? Map<String, Object?>.from(raw['devices']! as Map<String, Object?>)
-        : <String, Object?>{};
+    final devices = switch (raw['devices']) {
+      final Map<String, Object?> m => Map<String, Object?>.from(m),
+      _ => <String, Object?>{},
+    };
     final removed = devices.remove(deviceId) != null;
     raw['devices'] = devices;
     if (raw['default_device'] == deviceId) {
@@ -192,40 +215,46 @@ class DeviceProfileStore {
     final requestedId = (args['device_id'] as String?)?.trim();
     final defaultId = getDefaultDeviceId();
 
-    DeviceProfile? base;
-    if (requestedId != null &&
-        requestedId.isNotEmpty &&
-        profiles.containsKey(requestedId)) {
-      base = profiles[requestedId];
-    } else if (requestedId == null &&
-        defaultId != null &&
-        profiles.containsKey(defaultId)) {
-      base = profiles[defaultId];
-    } else if (requestedId == null && profiles.length == 1) {
-      base = profiles.values.first;
-    }
+    final base = switch ((requestedId, defaultId)) {
+      (final String req?, _) when req.isNotEmpty && profiles.containsKey(req) =>
+        profiles[req],
+      (null, final String def?) when profiles.containsKey(def) => profiles[def],
+      (null, _) when profiles.length == 1 => profiles.values.first,
+      _ => null,
+    };
 
-    final host = ((args['host'] as String?)?.trim().isNotEmpty == true)
-        ? (args['host'] as String).trim()
-        : (base?.host ?? '');
-    final user = ((args['user'] as String?)?.trim().isNotEmpty == true)
-        ? (args['user'] as String).trim()
-        : (base?.user ?? '');
-    final sshPort = (args['ssh_port'] as int?) ?? (base?.sshPort ?? 22);
+    final host = switch (args['host']) {
+      final String s when s.trim().isNotEmpty => s.trim(),
+      _ => base?.host ?? '',
+    };
+    final user = switch (args['user']) {
+      final String s when s.trim().isNotEmpty => s.trim(),
+      _ => base?.user ?? '',
+    };
+    final sshPort = switch (args['ssh_port']) {
+      final int p => p,
+      _ => base?.sshPort ?? 22,
+    };
     final deviceId = (requestedId != null && requestedId.isNotEmpty)
         ? requestedId
         : (base?.deviceId ?? defaultId ?? 'rog-ally');
-    final label = ((args['device_label'] as String?)?.trim().isNotEmpty == true)
-        ? (args['device_label'] as String).trim()
-        : (base?.label ?? '$deviceId (Wireless Windows)');
-    final useTcpPing =
-        (args['use_tcp_ping'] as bool?) ?? (base?.useTcpPing ?? true);
+    final label = switch (args['device_label']) {
+      final String s when s.trim().isNotEmpty => s.trim(),
+      _ => base?.label ?? '$deviceId (Wireless Windows)',
+    };
+    final useTcpPing = switch (args['use_tcp_ping']) {
+      final bool b => b,
+      _ => base?.useTcpPing ?? true,
+    };
     final keepHeadlessSessionAlive =
-        (args['keep_headless_session_alive'] as bool?) ??
-            (base?.keepHeadlessSessionAlive ?? false);
-    final appName = ((args['app_name'] as String?)?.trim().isNotEmpty == true)
-        ? (args['app_name'] as String).trim()
-        : base?.defaultAppName;
+        switch (args['keep_headless_session_alive']) {
+      final bool b => b,
+      _ => base?.keepHeadlessSessionAlive ?? false,
+    };
+    final appName = switch (args['app_name']) {
+      final String s when s.trim().isNotEmpty => s.trim(),
+      _ => base?.defaultAppName,
+    };
 
     if (host.isEmpty || user.isEmpty) {
       throw ArgumentError(

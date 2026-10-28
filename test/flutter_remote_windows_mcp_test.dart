@@ -15,7 +15,7 @@ String decodePowerShellEncodedCommand(String base64Str) {
   return String.fromCharCodes(codeUnits);
 }
 
-class RecordedCommand {
+final class RecordedCommand {
   RecordedCommand(this.executable, this.arguments);
   final String executable;
   final List<String> arguments;

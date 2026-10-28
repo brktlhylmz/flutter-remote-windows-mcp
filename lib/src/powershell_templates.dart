@@ -1,8 +1,6 @@
 /// PowerShell and shell script templates for Windows OpenSSH pairing,
 /// Session 1 GUI execution, screenshots, power management, and smart postBuild hooks.
-class PowerShellTemplates {
-  const PowerShellTemplates._();
-
+abstract final class PowerShellTemplates {
   /// Generates the PowerShell script that enables OpenSSH Server on Windows 11
   /// and authorizes the host's SSH public key with locale-independent SIDs.
   static String sshPairingScript(String sshPublicKey) {

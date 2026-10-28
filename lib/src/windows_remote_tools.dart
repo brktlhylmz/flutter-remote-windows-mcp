@@ -13,7 +13,7 @@ typedef ProcessRunner = Future<ProcessResult> Function(
 );
 
 /// Implements the MCP tools for managing wireless and remote Flutter Windows devices.
-class WindowsRemoteTools {
+final class WindowsRemoteTools {
   WindowsRemoteTools({
     DeviceProfileStore? profileStore,
     ProcessRunner? processRunner,
@@ -535,36 +535,22 @@ class WindowsRemoteTools {
   }
 
   /// Dispatches a `tools/call` invocation by name.
-  Future<String> callTool(String name, Map<String, Object?> args) async {
-    switch (name) {
-      case 'manage_device_profiles':
-        return _manageDeviceProfiles(args);
-      case 'generate_ssh_pairing':
-        return _generateSshPairing(args);
-      case 'check_remote_windows':
-        return _checkRemoteWindows(args);
-      case 'install_windows_toolchain':
-        return _installWindowsToolchain(args);
-      case 'sync_flutter_version':
-        return _syncFlutterVersion(args);
-      case 'setup_flutter_custom_device':
-        return _setupFlutterCustomDevice(args);
-      case 'sync_and_rebuild_windows_runner':
-        return _syncAndRebuildWindowsRunner(args);
-      case 'take_remote_screenshot':
-        return _takeRemoteScreenshot(args);
-      case 'set_dev_power_mode':
-        return _setDevPowerMode(args);
-      case 'discover_and_update_ip':
-        return _discoverAndUpdateIp(args);
-      case 'build_and_fetch_release':
-        return _buildAndFetchRelease(args);
-      case 'remote_app_control':
-        return _remoteAppControl(args);
-      default:
-        throw ArgumentError('Unknown tool: $name');
-    }
-  }
+  Future<String> callTool(String name, Map<String, Object?> args) =>
+      switch (name) {
+        'manage_device_profiles' => _manageDeviceProfiles(args),
+        'generate_ssh_pairing' => _generateSshPairing(args),
+        'check_remote_windows' => _checkRemoteWindows(args),
+        'install_windows_toolchain' => _installWindowsToolchain(args),
+        'sync_flutter_version' => _syncFlutterVersion(args),
+        'setup_flutter_custom_device' => _setupFlutterCustomDevice(args),
+        'sync_and_rebuild_windows_runner' => _syncAndRebuildWindowsRunner(args),
+        'take_remote_screenshot' => _takeRemoteScreenshot(args),
+        'set_dev_power_mode' => _setDevPowerMode(args),
+        'discover_and_update_ip' => _discoverAndUpdateIp(args),
+        'build_and_fetch_release' => _buildAndFetchRelease(args),
+        'remote_app_control' => _remoteAppControl(args),
+        _ => throw ArgumentError.value(name, 'name', 'Unknown tool: $name'),
+      };
 
   Future<String> _manageDeviceProfiles(Map<String, Object?> args) async {
     final action = args['action'] as String;
@@ -828,10 +814,10 @@ Write-Output ("Sidekick installed with Desktop shortcut: " + $exe.FullName)
     final appName = (args['app_name'] as String?) ?? profile.defaultAppName;
     final force = (args['force'] as bool?) ?? false;
 
-    final localInfo =
-        await _getLocalFlutterVersionInfo(projectPath: projectPath);
-    final localVersion = localInfo['frameworkVersion'] ?? 'stable';
-    final localEngine = localInfo['engineRevision'] ?? '';
+    final (
+      frameworkVersion: localVersion,
+      engineRevision: localEngine,
+    ) = await _getLocalFlutterVersionInfo(projectPath: projectPath);
 
     const remoteVerPs = r'''
 $flutterBin = "$env:USERPROFILE\fvm\default\bin\flutter.bat"
@@ -850,10 +836,14 @@ if (Test-Path $flutterBin) {
     var remoteVersion = '';
     var remoteEngine = '';
     try {
-      final decoded = jsonDecode(remoteRes.stdout.toString().trim());
-      if (decoded is Map<String, Object?>) {
-        remoteVersion = (decoded['frameworkVersion'] as String?) ?? '';
-        remoteEngine = (decoded['engineRevision'] as String?) ?? '';
+      if (jsonDecode(remoteRes.stdout.toString().trim())
+          case final Map<String, Object?> decoded) {
+        if (decoded['frameworkVersion'] case final String fv) {
+          remoteVersion = fv;
+        }
+        if (decoded['engineRevision'] case final String er) {
+          remoteEngine = er;
+        }
       }
     } on Object {
       // Ignore parse errors
@@ -1539,19 +1529,18 @@ Write-Output "RELEASE_ZIP_READY"
     }
   }
 
-  Future<Map<String, String>> _getLocalFlutterVersionInfo({
+  Future<({String frameworkVersion, String engineRevision})>
+      _getLocalFlutterVersionInfo({
     String? projectPath,
   }) async {
     if (projectPath != null && projectPath.isNotEmpty) {
       final fvmrc = File('$projectPath/.fvmrc');
       if (fvmrc.existsSync()) {
         try {
-          final decoded = jsonDecode(fvmrc.readAsStringSync());
-          if (decoded is Map<String, Object?> && decoded['flutter'] is String) {
-            final ver = decoded['flutter'] as String;
-            if (ver != 'stable' && ver != 'beta' && ver != 'master') {
-              return <String, String>{'frameworkVersion': ver};
-            }
+          if (jsonDecode(fvmrc.readAsStringSync())
+              case {'flutter': final String ver}
+              when ver != 'stable' && ver != 'beta' && ver != 'master') {
+            return (frameworkVersion: ver, engineRevision: '');
           }
         } on Object {
           // Fallback to flutter --version --machine
@@ -1563,19 +1552,24 @@ Write-Output "RELEASE_ZIP_READY"
         await _runProcess('flutter', <String>['--version', '--machine']);
     if (res.exitCode == 0) {
       try {
-        final decoded = jsonDecode(res.stdout.toString().trim());
-        if (decoded is Map<String, Object?>) {
-          return <String, String>{
-            'frameworkVersion':
-                (decoded['frameworkVersion'] as String?) ?? 'stable',
-            'engineRevision': (decoded['engineRevision'] as String?) ?? '',
-          };
+        if (jsonDecode(res.stdout.toString().trim())
+            case final Map<String, Object?> decoded) {
+          return (
+            frameworkVersion: switch (decoded['frameworkVersion']) {
+              final String s when s.isNotEmpty => s,
+              _ => 'stable',
+            },
+            engineRevision: switch (decoded['engineRevision']) {
+              final String s => s,
+              _ => '',
+            },
+          );
         }
       } on Object {
         // Fallback
       }
     }
-    return <String, String>{'frameworkVersion': 'stable'};
+    return (frameworkVersion: 'stable', engineRevision: '');
   }
 
   String _detectDefaultTarget(String projectPath) {
