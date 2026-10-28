@@ -33,7 +33,7 @@ class WindowsRemoteTools {
       <String, Object?>{
         'name': 'check_remote_windows',
         'description':
-            'Connects to the remote Windows device over SSH and checks OS version, free disk space, Git, FVM, Sidekick, Flutter SDK, and Visual Studio 2022 C++ Build Tools status.',
+            'Connects to the remote Windows device over SSH and checks OS version, hostname, free disk space, Git, FVM, Sidekick, Flutter SDK version, and Visual Studio 2022 C++ Build Tools status.',
         'inputSchema': <String, Object?>{
           'type': 'object',
           'properties': <String, Object?>{
@@ -85,9 +85,40 @@ class WindowsRemoteTools {
         },
       },
       <String, Object?>{
+        'name': 'sync_flutter_version',
+        'description':
+            'Checks the active Flutter SDK version on the Mac (or project .fvmrc) and compares it with the remote Windows device. If they differ, uses FVM on Windows to install and activate the exact same Flutter version so Dart VM kernel snapshots match 100%.',
+        'inputSchema': <String, Object?>{
+          'type': 'object',
+          'properties': <String, Object?>{
+            'host': <String, Object?>{
+              'type': 'string',
+              'description': 'IP address of the Windows device.',
+            },
+            'user': <String, Object?>{
+              'type': 'string',
+              'description': 'Windows SSH username.',
+            },
+            'project_path': <String, Object?>{
+              'type': 'string',
+              'description': 'Optional local project path to check .fvmrc and rebuild runner if version changed.',
+            },
+            'app_name': <String, Object?>{
+              'type': 'string',
+              'description': 'Optional app binary name to rebuild runner if version changed.',
+            },
+            'force': <String, Object?>{
+              'type': 'boolean',
+              'description': 'Force reinstall/activate on Windows even if versions appear identical (default: false).',
+            },
+          },
+          'required': <String>['host', 'user'],
+        },
+      },
+      <String, Object?>{
         'name': 'setup_flutter_custom_device',
         'description':
-            'Configures Flutter custom-devices on the host (~/.config/flutter/custom_devices.json), updates ~/.ssh/config, deploys Session 1 GUI launcher scripts (session1_runner.ps1, run_debug.ps1, FLUTTER_ENGINE_SWITCHES, running.lock) to the Windows device, and optionally adds a launch configuration to .vscode/launch.json.',
+            'Configures Flutter custom-devices on the host (~/.config/flutter/custom_devices.json) including the smart postBuild hook (auto-rebuilds Windows C++ runner when plugins change), updates ~/.ssh/config, deploys Session 1 GUI & screenshot scripts to the Windows device, and updates .vscode/launch.json.',
         'inputSchema': <String, Object?>{
           'type': 'object',
           'properties': <String, Object?>{
@@ -109,7 +140,11 @@ class WindowsRemoteTools {
             },
             'app_name': <String, Object?>{
               'type': 'string',
-              'description': 'Flutter application binary name from pubspec.yaml (e.g. "gyrodeck_desktop").',
+              'description': 'Default Flutter application binary name (e.g. "gyrodeck_desktop").',
+            },
+            'enable_auto_post_build': <String, Object?>{
+              'type': 'boolean',
+              'description': 'Enable the smart postBuild hook that automatically rebuilds the Windows C++ runner when plugins or windows/ files change (default: true).',
             },
             'project_path': <String, Object?>{
               'type': 'string',
@@ -126,7 +161,7 @@ class WindowsRemoteTools {
       <String, Object?>{
         'name': 'sync_and_rebuild_windows_runner',
         'description':
-            'Syncs the local Flutter project (pubspec.yaml, lib/, windows/, l10n.yaml) to the remote Windows device, runs "flutter build windows --debug" remotely using Visual Studio Build Tools, and updates the Session 1 runner directory. Call this once per project or whenever you add/change native Windows C++ plugins.',
+            'Syncs the local Flutter project to an isolated project folder on the remote Windows device, verifies Flutter version parity, runs "flutter build windows --debug" remotely using Visual Studio Build Tools, and updates the Session 1 runner directory.',
         'inputSchema': <String, Object?>{
           'type': 'object',
           'properties': <String, Object?>{
@@ -148,7 +183,108 @@ class WindowsRemoteTools {
             },
             'target': <String, Object?>{
               'type': 'string',
-              'description': 'Dart entrypoint file (default: "lib/main.dart", e.g. "lib/main_development.dart").',
+              'description': 'Dart entrypoint file (default: auto-detected from lib/main.dart or lib/main_development.dart).',
+            },
+          },
+          'required': <String>['host', 'user', 'project_path', 'app_name'],
+        },
+      },
+      <String, Object?>{
+        'name': 'take_remote_screenshot',
+        'description':
+            'Captures a full-resolution (DPI-aware) PNG screenshot of the remote Windows device physical screen (Interactive Session 1) and downloads it to the local machine so you or the AI agent can inspect the live UI.',
+        'inputSchema': <String, Object?>{
+          'type': 'object',
+          'properties': <String, Object?>{
+            'host': <String, Object?>{
+              'type': 'string',
+              'description': 'IP address of the Windows device.',
+            },
+            'user': <String, Object?>{
+              'type': 'string',
+              'description': 'Windows SSH username.',
+            },
+            'output_path': <String, Object?>{
+              'type': 'string',
+              'description': 'Local path on Mac to save the PNG screenshot (default: "/tmp/windows_remote_screenshot.png").',
+            },
+          },
+          'required': <String>['host', 'user'],
+        },
+      },
+      <String, Object?>{
+        'name': 'set_dev_power_mode',
+        'description':
+            'Prevents the Windows handheld/PC from turning off its display or entering Modern Standby sleep during wireless development, or restores default power timeouts.',
+        'inputSchema': <String, Object?>{
+          'type': 'object',
+          'properties': <String, Object?>{
+            'host': <String, Object?>{
+              'type': 'string',
+              'description': 'IP address of the Windows device.',
+            },
+            'user': <String, Object?>{
+              'type': 'string',
+              'description': 'Windows SSH username.',
+            },
+            'mode': <String, Object?>{
+              'type': 'string',
+              'enum': <String>['keep_awake', 'restore_default'],
+              'description': '"keep_awake" disables sleep/display timeouts on AC & battery; "restore_default" sets 15m/30m timeouts.',
+            },
+          },
+          'required': <String>['host', 'user', 'mode'],
+        },
+      },
+      <String, Object?>{
+        'name': 'discover_and_update_ip',
+        'description':
+            'Automatically finds the Windows device IP address on the local Wi-Fi network (via mDNS hostname like "bty-ally.local" or ARP/SSH scan) and updates ~/.ssh/config, custom_devices.json, and postBuild scripts.',
+        'inputSchema': <String, Object?>{
+          'type': 'object',
+          'properties': <String, Object?>{
+            'user': <String, Object?>{
+              'type': 'string',
+              'description': 'Windows SSH username (e.g. burak).',
+            },
+            'windows_hostname': <String, Object?>{
+              'type': 'string',
+              'description': 'Windows machine hostname (default: "bty-ally").',
+            },
+            'device_id': <String, Object?>{
+              'type': 'string',
+              'description': 'Device ID in custom_devices.json (default: "rog-ally").',
+            },
+          },
+          'required': <String>['user'],
+        },
+      },
+      <String, Object?>{
+        'name': 'build_and_fetch_release',
+        'description':
+            'Syncs the local Flutter project to the Windows device, builds a production Windows Release bundle (flutter build windows --release), packages the Release folder into a .zip archive, and downloads it back to the local Mac project directory.',
+        'inputSchema': <String, Object?>{
+          'type': 'object',
+          'properties': <String, Object?>{
+            'host': <String, Object?>{
+              'type': 'string',
+              'description': 'IP address of the Windows device.',
+            },
+            'user': <String, Object?>{
+              'type': 'string',
+              'description': 'Windows SSH username.',
+            },
+            'project_path': <String, Object?>{
+              'type': 'string',
+              'description': 'Absolute path to the local Flutter project.',
+            },
+            'app_name': <String, Object?>{
+              'type': 'string',
+              'description': 'Binary name of the Flutter app.',
+            },
+            'target': <String, Object?>{
+              'type': 'string',
+              'description': 'Dart entrypoint file for release build (default: auto-detected from lib/main_production.dart or lib/main.dart).',
             },
           },
           'required': <String>['host', 'user', 'project_path', 'app_name'],
@@ -157,7 +293,7 @@ class WindowsRemoteTools {
       <String, Object?>{
         'name': 'remote_app_control',
         'description':
-            'Controls and diagnoses the remote Windows device: check running app status in Session 1, read stdout/stderr logs, stop running app, test launch in Session 1, or update the device IP address across ~/.ssh/config and custom_devices.json.',
+            'Controls and diagnoses the remote Windows device: check running app status in Session 1, read stdout/stderr logs, stop running app, test launch in Session 1, or manually update the device IP address.',
         'inputSchema': <String, Object?>{
           'type': 'object',
           'properties': <String, Object?>{
@@ -202,10 +338,20 @@ class WindowsRemoteTools {
         return _checkRemoteWindows(args);
       case 'install_windows_toolchain':
         return _installWindowsToolchain(args);
+      case 'sync_flutter_version':
+        return _syncFlutterVersion(args);
       case 'setup_flutter_custom_device':
         return _setupFlutterCustomDevice(args);
       case 'sync_and_rebuild_windows_runner':
         return _syncAndRebuildWindowsRunner(args);
+      case 'take_remote_screenshot':
+        return _takeRemoteScreenshot(args);
+      case 'set_dev_power_mode':
+        return _setDevPowerMode(args);
+      case 'discover_and_update_ip':
+        return _discoverAndUpdateIp(args);
+      case 'build_and_fetch_release':
+        return _buildAndFetchRelease(args);
       case 'remote_app_control':
         return _remoteAppControl(args);
       default:
@@ -272,6 +418,7 @@ $script
 
     const psCheck = r'''
 $os = (Get-CimInstance Win32_OperatingSystem).Caption
+$hostname = hostname
 $freeGb = [math]::Round((Get-PSDrive C).Free / 1GB, 2)
 $git = (where.exe git 2>$null) -join ", "
 $fvm = (Get-ChildItem -Path "$env:LOCALAPPDATA\fvm" -Filter fvm.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
@@ -281,6 +428,7 @@ $vs = if (Test-Path $vswhere) { (& $vswhere -products * -Property catalog_produc
 $flutterBin = "$env:USERPROFILE\fvm\default\bin\flutter.bat"
 $flutterVer = if (Test-Path $flutterBin) { (& $flutterBin --version | Select-Object -First 1) } else { "Not Installed" }
 
+Write-Output "Hostname: $hostname"
 Write-Output "OS: $os"
 Write-Output "Free Disk (C:): $freeGb GB"
 Write-Output "Git: $(if ($git) { $git } else { 'Not Installed' })"
@@ -369,6 +517,73 @@ Write-Output ("Sidekick installed with Desktop shortcut: " + $exe.FullName)
     return logs.toString();
   }
 
+  Future<String> _syncFlutterVersion(Map<String, Object?> args) async {
+    final host = args['host'] as String;
+    final user = args['user'] as String;
+    final projectPath = args['project_path'] as String?;
+    final appName = args['app_name'] as String?;
+    final force = (args['force'] as bool?) ?? false;
+
+    final localInfo = await _getLocalFlutterVersionInfo(projectPath: projectPath);
+    final localVersion = localInfo['frameworkVersion'] ?? 'stable';
+    final localEngine = localInfo['engineRevision'] ?? '';
+
+    const remoteVerPs = r'''
+$flutterBin = "$env:USERPROFILE\fvm\default\bin\flutter.bat"
+if (Test-Path $flutterBin) {
+  & $flutterBin --version --machine
+} else {
+  Write-Output "{}"
+}
+''';
+    final remoteRes = await _runSshPowerShell(host, user, remoteVerPs);
+    var remoteVersion = '';
+    var remoteEngine = '';
+    try {
+      final decoded = jsonDecode(remoteRes.stdout.toString().trim());
+      if (decoded is Map<String, Object?>) {
+        remoteVersion = (decoded['frameworkVersion'] as String?) ?? '';
+        remoteEngine = (decoded['engineRevision'] as String?) ?? '';
+      }
+    } on Object {
+      // Ignore parse errors
+    }
+
+    if (!force &&
+        localVersion.isNotEmpty &&
+        localVersion == remoteVersion &&
+        (localEngine.isEmpty || localEngine == remoteEngine)) {
+      return 'Flutter versions are already in sync! Both Mac and Windows ($host) are on Flutter $localVersion (engine: $localEngine).';
+    }
+
+    final syncPs = '''
+\$fvm = (Get-ChildItem -Path "\$env:LOCALAPPDATA\\fvm" -Filter fvm.exe -Recurse | Select-Object -First 1).FullName
+& \$fvm install $localVersion --setup
+& \$fvm global $localVersion --force
+''';
+    final syncRes = await _runSshPowerShell(host, user, syncPs);
+    final buf = StringBuffer()
+      ..writeln(
+        'Synced Windows ($host) Flutter version from "${remoteVersion.isEmpty ? 'none' : remoteVersion}" to "$localVersion":',
+      )
+      ..writeln(syncRes.stdout.toString().trim());
+
+    if (projectPath != null &&
+        projectPath.isNotEmpty &&
+        appName != null &&
+        appName.isNotEmpty) {
+      final rebuildOut = await _syncAndRebuildWindowsRunner(<String, Object?>{
+        'host': host,
+        'user': user,
+        'project_path': projectPath,
+        'app_name': appName,
+      });
+      buf.writeln('\nRebuilt runner with new Flutter engine:\n$rebuildOut');
+    }
+
+    return buf.toString();
+  }
+
   Future<String> _setupFlutterCustomDevice(Map<String, Object?> args) async {
     final deviceId = args['device_id'] as String;
     final deviceLabel =
@@ -376,12 +591,14 @@ Write-Output ("Sidekick installed with Desktop shortcut: " + $exe.FullName)
     final host = args['host'] as String;
     final user = args['user'] as String;
     final appName = args['app_name'] as String;
+    final enableAutoPostBuild = (args['enable_auto_post_build'] as bool?) ?? true;
     final projectPath = args['project_path'] as String?;
     final target = (args['target'] as String?) ?? 'lib/main.dart';
 
     final remoteBaseDir = 'C:\\Users\\$user\\flutter_remote';
     final remoteBaseDirScp = 'C:/Users/$user/flutter_remote';
     const scheduledTaskName = 'FlutterRemoteRun';
+    const screenshotTaskName = 'FlutterRemoteScreenshot';
 
     // 1. Update ~/.ssh/config
     _upsertSshConfig(deviceId: deviceId, host: host, user: user);
@@ -389,21 +606,38 @@ Write-Output ("Sidekick installed with Desktop shortcut: " + $exe.FullName)
     // 2. Enable custom-devices in Flutter
     await Process.run('flutter', <String>['config', '--enable-custom-devices']);
 
-    // 3. Create remote directories and upload Session 1 scripts
+    // 3. Create local postBuild smart hook script
+    final home = Platform.environment['HOME'] ?? '';
+    final postBuildScriptPath = '$home/.config/flutter/post_build_$deviceId.sh';
+    final postBuildFile = File(postBuildScriptPath);
+    if (!postBuildFile.parent.existsSync()) {
+      postBuildFile.parent.createSync(recursive: true);
+    }
+    postBuildFile.writeAsStringSync(
+      PowerShellTemplates.macPostBuildHookScript(
+        host: host,
+        user: user,
+        remoteBaseDir: remoteBaseDir,
+        remoteBaseDirScp: remoteBaseDirScp,
+      ),
+    );
+    await Process.run('chmod', <String>['+x', postBuildScriptPath]);
+
+    // 4. Create remote directories and upload Session 1 scripts
     final tempDir = Directory.systemTemp.createTempSync('flutter_remote_mcp_');
     try {
       final s1File = File('${tempDir.path}/session1_runner.ps1')
         ..writeAsStringSync(
           PowerShellTemplates.session1RunnerScript(
             remoteBaseDir: remoteBaseDir,
-            appName: appName,
+            defaultAppName: appName,
           ),
         );
       final rdFile = File('${tempDir.path}/run_debug.ps1')
         ..writeAsStringSync(
           PowerShellTemplates.runDebugScript(
             remoteBaseDir: remoteBaseDir,
-            appName: appName,
+            defaultAppName: appName,
             scheduledTaskName: scheduledTaskName,
           ),
         );
@@ -411,16 +645,24 @@ Write-Output ("Sidekick installed with Desktop shortcut: " + $exe.FullName)
         ..writeAsStringSync(
           PowerShellTemplates.uninstallScript(
             remoteBaseDir: remoteBaseDir,
-            appName: appName,
+            defaultAppName: appName,
           ),
         );
       final fpFile = File('${tempDir.path}/forward_port.ps1')
         ..writeAsStringSync(PowerShellTemplates.forwardPortScript());
+      final ssFile = File('${tempDir.path}/screenshot_session1.ps1')
+        ..writeAsStringSync(
+          PowerShellTemplates.screenshotSession1Script(
+            remoteBaseDir: remoteBaseDir,
+          ),
+        );
 
       await _runSshPowerShell(
         host,
         user,
-        'New-Item -Force -ItemType Directory "$remoteBaseDir\\$appName\\data" | Out-Null',
+        'New-Item -Force -ItemType Directory "$remoteBaseDir\\$appName\\data" | Out-Null; '
+        'New-Item -Force -ItemType Directory "$remoteBaseDir\\runners\\$appName\\data" | Out-Null; '
+        'New-Item -Force -ItemType Directory "$remoteBaseDir\\projects" | Out-Null',
       );
 
       await Process.run('scp', <String>[
@@ -430,6 +672,7 @@ Write-Output ("Sidekick installed with Desktop shortcut: " + $exe.FullName)
         rdFile.path,
         unFile.path,
         fpFile.path,
+        ssFile.path,
         '$user@$host:$remoteBaseDirScp/',
       ]);
 
@@ -437,13 +680,14 @@ Write-Output ("Sidekick installed with Desktop shortcut: " + $exe.FullName)
         '-o',
         'BatchMode=yes',
         '$user@$host',
-        'schtasks /Create /TN $scheduledTaskName /TR "powershell.exe -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File $remoteBaseDir\\session1_runner.ps1" /SC ONCE /ST 00:00 /IT /F',
+        'schtasks /Create /TN $scheduledTaskName /TR "powershell.exe -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File $remoteBaseDir\\session1_runner.ps1" /SC ONCE /ST 00:00 /IT /F && '
+        'schtasks /Create /TN $screenshotTaskName /TR "powershell.exe -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File $remoteBaseDir\\screenshot_session1.ps1" /SC ONCE /ST 00:00 /IT /F',
       ]);
     } finally {
       tempDir.deleteSync(recursive: true);
     }
 
-    // 4. Upsert ~/.config/flutter/custom_devices.json
+    // 5. Upsert ~/.config/flutter/custom_devices.json
     _upsertCustomDevicesJson(
       deviceId: deviceId,
       deviceLabel: deviceLabel,
@@ -452,9 +696,10 @@ Write-Output ("Sidekick installed with Desktop shortcut: " + $exe.FullName)
       appName: appName,
       remoteBaseDir: remoteBaseDir,
       remoteBaseDirScp: remoteBaseDirScp,
+      postBuildScriptPath: enableAutoPostBuild ? postBuildScriptPath : null,
     );
 
-    // 5. Optionally update .vscode/launch.json
+    // 6. Optionally update .vscode/launch.json
     if (projectPath != null && projectPath.isNotEmpty) {
       _upsertLaunchJson(
         projectPath: projectPath,
@@ -466,7 +711,8 @@ Write-Output ("Sidekick installed with Desktop shortcut: " + $exe.FullName)
 
     return '''
 Successfully configured Flutter Custom Device "$deviceId" ($deviceLabel) at $user@$host!
-- Session 1 interactive scheduled task ($scheduledTaskName) deployed to $remoteBaseDir
+- Session 1 interactive scheduled tasks ($scheduledTaskName & $screenshotTaskName) deployed to $remoteBaseDir
+- Smart postBuild hook: ${enableAutoPostBuild ? postBuildScriptPath : 'disabled'}
 - Updated ~/.config/flutter/custom_devices.json
 - Updated ~/.ssh/config
 ${projectPath != null ? '- Updated $projectPath/.vscode/launch.json' : ''}
@@ -478,17 +724,27 @@ ${projectPath != null ? '- Updated $projectPath/.vscode/launch.json' : ''}
     final user = args['user'] as String;
     final projectPath = args['project_path'] as String;
     final appName = args['app_name'] as String;
-    final target = (args['target'] as String?) ?? 'lib/main.dart';
+    final explicitTarget = args['target'] as String?;
+    final target = explicitTarget ?? _detectDefaultTarget(projectPath);
 
     final remoteBaseDir = 'C:\\Users\\$user\\flutter_remote';
-    final remoteProjectScp = 'C:/Users/$user/flutter_remote/project';
+    final remoteProjectDir = '$remoteBaseDir\\projects\\$appName';
+    final remoteProjectScp = 'C:/Users/$user/flutter_remote/projects/$appName';
+
+    // Ensure Flutter version parity first
+    await _syncFlutterVersion(<String, Object?>{
+      'host': host,
+      'user': user,
+      'project_path': projectPath,
+    });
 
     await _runSshPowerShell(
       host,
       user,
       'Remove-Item "$remoteBaseDir\\running.lock" -Force -ErrorAction SilentlyContinue; '
       'Stop-Process -Name "$appName" -Force -ErrorAction SilentlyContinue; '
-      'New-Item -Force -ItemType Directory "$remoteBaseDir\\project" | Out-Null; '
+      'New-Item -Force -ItemType Directory "$remoteProjectDir" | Out-Null; '
+      'New-Item -Force -ItemType Directory "$remoteBaseDir\\runners\\$appName" | Out-Null; '
       'New-Item -Force -ItemType Directory "$remoteBaseDir\\$appName" | Out-Null',
     );
 
@@ -518,12 +774,13 @@ ${projectPath != null ? '- Updated $projectPath/.vscode/launch.json' : ''}
     }
 
     final buildPs = '''
-Set-Location "$remoteBaseDir\\project"
+Set-Location "$remoteProjectDir"
 \$flutter = if (Test-Path "\$env:USERPROFILE\\fvm\\default\\bin\\flutter.bat") { "\$env:USERPROFILE\\fvm\\default\\bin\\flutter.bat" } else { "flutter.bat" }
 & \$flutter build windows --debug -t $target
 if (\$LASTEXITCODE -ne 0) { exit \$LASTEXITCODE }
-Copy-Item -Recurse -Force "$remoteBaseDir\\project\\build\\windows\\x64\\runner\\Debug\\*" "$remoteBaseDir\\$appName"
-Write-Output "Runner updated in $remoteBaseDir\\$appName"
+Copy-Item -Recurse -Force "$remoteProjectDir\\build\\windows\\x64\\runner\\Debug\\*" "$remoteBaseDir\\runners\\$appName"
+Copy-Item -Recurse -Force "$remoteProjectDir\\build\\windows\\x64\\runner\\Debug\\*" "$remoteBaseDir\\$appName"
+Write-Output "Runner updated in $remoteBaseDir\\runners\\$appName"
 ''';
 
     final buildRes = await _runSshPowerShell(host, user, buildPs);
@@ -532,6 +789,219 @@ Write-Output "Runner updated in $remoteBaseDir\\$appName"
     }
 
     return 'Successfully synced and rebuilt Windows debug runner ($appName.exe):\n${buildRes.stdout}';
+  }
+
+  Future<String> _takeRemoteScreenshot(Map<String, Object?> args) async {
+    final host = args['host'] as String;
+    final user = args['user'] as String;
+    final outputPath =
+        (args['output_path'] as String?) ?? '/tmp/windows_remote_screenshot.png';
+    final remoteBaseDir = 'C:\\Users\\$user\\flutter_remote';
+    final remoteBaseDirScp = 'C:/Users/$user/flutter_remote';
+
+    final capturePs = '''
+Remove-Item "$remoteBaseDir\\screenshot.png","$remoteBaseDir\\screenshot.done" -Force -ErrorAction SilentlyContinue
+schtasks /Run /TN FlutterRemoteScreenshot | Out-Null
+\$count = 0
+while (!(Test-Path "$remoteBaseDir\\screenshot.done") -and (\$count -lt 50)) {
+  Start-Sleep -Milliseconds 100
+  \$count++
+}
+if (Test-Path "$remoteBaseDir\\screenshot.png") {
+  Write-Output "CAPTURED"
+} else {
+  Write-Output "FAILED"
+}
+''';
+
+    final res = await _runSshPowerShell(host, user, capturePs);
+    if (!res.stdout.toString().contains('CAPTURED')) {
+      return 'Failed to capture Session 1 screenshot on $host. Ensure setup_flutter_custom_device has been run.';
+    }
+
+    final scpRes = await Process.run('scp', <String>[
+      '-o',
+      'BatchMode=yes',
+      '$user@$host:$remoteBaseDirScp/screenshot.png',
+      outputPath,
+    ]);
+    if (scpRes.exitCode != 0) {
+      return 'Failed to download screenshot via SCP:\n${scpRes.stderr}';
+    }
+
+    return 'Screenshot captured from $host (Session 1) and saved to: $outputPath';
+  }
+
+  Future<String> _setDevPowerMode(Map<String, Object?> args) async {
+    final host = args['host'] as String;
+    final user = args['user'] as String;
+    final mode = args['mode'] as String;
+
+    final ps = mode == 'keep_awake'
+        ? '''
+powercfg /change monitor-timeout-ac 0
+powercfg /change monitor-timeout-dc 0
+powercfg /change standby-timeout-ac 0
+powercfg /change standby-timeout-dc 0
+Write-Output "Power mode set to KEEP_AWAKE (monitor and standby timeouts disabled on AC & battery)."
+'''
+        : '''
+powercfg /change monitor-timeout-ac 15
+powercfg /change monitor-timeout-dc 5
+powercfg /change standby-timeout-ac 30
+powercfg /change standby-timeout-dc 15
+Write-Output "Power mode restored to default timeouts."
+''';
+
+    final res = await _runSshPowerShell(host, user, ps);
+    return res.stdout.toString().trim();
+  }
+
+  Future<String> _discoverAndUpdateIp(Map<String, Object?> args) async {
+    final user = args['user'] as String;
+    final windowsHostname =
+        ((args['windows_hostname'] as String?) ?? 'bty-ally').toLowerCase();
+    final deviceId = (args['device_id'] as String?) ?? 'rog-ally';
+
+    String? discoveredIp;
+
+    // 1. Try mDNS (.local) or direct hostname resolution via ping
+    for (final candidate in <String>[
+      '$windowsHostname.local',
+      windowsHostname,
+    ]) {
+      final pingRes = await Process.run('ping', <String>[
+        '-c',
+        '1',
+        '-t',
+        '2',
+        candidate,
+      ]);
+      if (pingRes.exitCode == 0) {
+        final match = RegExp(r'\((\d+\.\d+\.\d+\.\d+)\)').firstMatch(
+          pingRes.stdout.toString(),
+        );
+        if (match != null) {
+          discoveredIp = match.group(1);
+          break;
+        }
+      }
+    }
+
+    // 2. Fallback: check ARP table entries on local network
+    if (discoveredIp == null) {
+      final arpRes = await Process.run('arp', <String>['-a']);
+      final matches = RegExp(r'\((\d+\.\d+\.\d+\.\d+)\)').allMatches(
+        arpRes.stdout.toString(),
+      );
+      for (final m in matches) {
+        final ip = m.group(1);
+        if (ip == null || ip.endsWith('.255') || ip.endsWith('.1')) continue;
+        final sshCheck = await Process.run('ssh', <String>[
+          '-o',
+          'BatchMode=yes',
+          '-o',
+          'ConnectTimeout=1',
+          '$user@$ip',
+          'hostname',
+        ]);
+        if (sshCheck.exitCode == 0 &&
+            sshCheck.stdout.toString().trim().toLowerCase() ==
+                windowsHostname) {
+          discoveredIp = ip;
+          break;
+        }
+      }
+    }
+
+    if (discoveredIp == null) {
+      return 'Could not automatically discover IP for hostname "$windowsHostname" on the local network.';
+    }
+
+    _upsertSshConfig(deviceId: deviceId, host: discoveredIp, user: user);
+    _replaceDeviceIpInConfigs(
+      deviceId: deviceId,
+      user: user,
+      newIp: discoveredIp,
+    );
+
+    return 'Discovered "$windowsHostname" at IP $discoveredIp and updated ~/.ssh/config, custom_devices.json, and postBuild hook!';
+  }
+
+  Future<String> _buildAndFetchRelease(Map<String, Object?> args) async {
+    final host = args['host'] as String;
+    final user = args['user'] as String;
+    final projectPath = args['project_path'] as String;
+    final appName = args['app_name'] as String;
+    final explicitTarget = args['target'] as String?;
+    final target = explicitTarget ?? _detectReleaseTarget(projectPath);
+
+    final remoteBaseDir = 'C:\\Users\\$user\\flutter_remote';
+    final remoteProjectDir = '$remoteBaseDir\\projects\\$appName';
+    final remoteProjectScp = 'C:/Users/$user/flutter_remote/projects/$appName';
+    final remoteZipPath = '$remoteBaseDir\\$appName-windows-release.zip';
+    final remoteZipScp = 'C:/Users/$user/flutter_remote/$appName-windows-release.zip';
+
+    await _runSshPowerShell(
+      host,
+      user,
+      'New-Item -Force -ItemType Directory "$remoteProjectDir" | Out-Null',
+    );
+
+    final itemsToCopy = <String>[];
+    for (final item in <String>[
+      'pubspec.yaml',
+      'l10n.yaml',
+      'lib',
+      'windows',
+      'assets',
+    ]) {
+      final path = '$projectPath/$item';
+      if (FileSystemEntity.typeSync(path) != FileSystemEntityType.notFound) {
+        itemsToCopy.add(path);
+      }
+    }
+
+    await Process.run('scp', <String>[
+      '-r',
+      '-o',
+      'BatchMode=yes',
+      ...itemsToCopy,
+      '$user@$host:$remoteProjectScp/',
+    ]);
+
+    final releasePs = '''
+Set-Location "$remoteProjectDir"
+\$flutter = if (Test-Path "\$env:USERPROFILE\\fvm\\default\\bin\\flutter.bat") { "\$env:USERPROFILE\\fvm\\default\\bin\\flutter.bat" } else { "flutter.bat" }
+& \$flutter build windows --release -t $target
+if (\$LASTEXITCODE -ne 0) { exit \$LASTEXITCODE }
+Remove-Item "$remoteZipPath" -Force -ErrorAction SilentlyContinue
+Compress-Archive -Path "$remoteProjectDir\\build\\windows\\x64\\runner\\Release\\*" -DestinationPath "$remoteZipPath" -Force
+Write-Output "RELEASE_ZIP_READY"
+''';
+
+    final res = await _runSshPowerShell(host, user, releasePs);
+    if (!res.stdout.toString().contains('RELEASE_ZIP_READY')) {
+      return 'Release build failed on $host:\n${res.stdout}\n${res.stderr}';
+    }
+
+    final localBuildDir = Directory('$projectPath/build');
+    if (!localBuildDir.existsSync()) {
+      localBuildDir.createSync(recursive: true);
+    }
+    final localZipPath = '${localBuildDir.path}/$appName-windows-release.zip';
+
+    final scpRes = await Process.run('scp', <String>[
+      '-o',
+      'BatchMode=yes',
+      '$user@$host:$remoteZipScp',
+      localZipPath,
+    ]);
+    if (scpRes.exitCode != 0) {
+      return 'Failed to download Release zip via SCP:\n${scpRes.stderr}';
+    }
+
+    return 'Windows Release built on $host and downloaded to: $localZipPath';
   }
 
   Future<String> _remoteAppControl(Map<String, Object?> args) async {
@@ -576,6 +1046,7 @@ Write-Output "Runner updated in $remoteBaseDir\\$appName"
         final res = await _runSshPowerShell(
           host,
           user,
+          '"$appName" | Set-Content -Path "$remoteBaseDir\\active_app.txt" -Encoding Ascii; '
           'Remove-Item "$remoteBaseDir\\running.lock" -Force -ErrorAction SilentlyContinue; '
           'Stop-Process -Name "$appName" -Force -ErrorAction SilentlyContinue; '
           'Start-Sleep -Milliseconds 300; '
@@ -595,12 +1066,71 @@ Write-Output "Runner updated in $remoteBaseDir\\$appName"
           throw ArgumentError('new_ip is required when action is "update_ip".');
         }
         _upsertSshConfig(deviceId: deviceId, host: newIp, user: user);
-        _updateIpInCustomDevicesJson(deviceId: deviceId, oldIp: host, newIp: newIp);
-        return 'Updated IP address for "$deviceId" from $host to $newIp in ~/.ssh/config and ~/.config/flutter/custom_devices.json.';
+        _replaceDeviceIpInConfigs(
+          deviceId: deviceId,
+          user: user,
+          newIp: newIp,
+        );
+        return 'Updated IP address for "$deviceId" to $newIp in ~/.ssh/config, custom_devices.json, and postBuild hook.';
 
       default:
         throw ArgumentError('Unsupported action: $action');
     }
+  }
+
+  Future<Map<String, String>> _getLocalFlutterVersionInfo({
+    String? projectPath,
+  }) async {
+    // Check .fvmrc if projectPath is provided
+    if (projectPath != null && projectPath.isNotEmpty) {
+      final fvmrc = File('$projectPath/.fvmrc');
+      if (fvmrc.existsSync()) {
+        try {
+          final decoded = jsonDecode(fvmrc.readAsStringSync());
+          if (decoded is Map<String, Object?> && decoded['flutter'] is String) {
+            final ver = decoded['flutter'] as String;
+            if (ver != 'stable' && ver != 'beta' && ver != 'master') {
+              return <String, String>{'frameworkVersion': ver};
+            }
+          }
+        } on Object {
+          // Fallback to flutter --version --machine
+        }
+      }
+    }
+
+    final res = await Process.run('flutter', <String>['--version', '--machine']);
+    if (res.exitCode == 0) {
+      try {
+        final decoded = jsonDecode(res.stdout.toString().trim());
+        if (decoded is Map<String, Object?>) {
+          return <String, String>{
+            'frameworkVersion': (decoded['frameworkVersion'] as String?) ?? 'stable',
+            'engineRevision': (decoded['engineRevision'] as String?) ?? '',
+          };
+        }
+      } on Object {
+        // Fallback
+      }
+    }
+    return <String, String>{'frameworkVersion': 'stable'};
+  }
+
+  String _detectDefaultTarget(String projectPath) {
+    if (File('$projectPath/lib/main.dart').existsSync()) {
+      return 'lib/main.dart';
+    }
+    if (File('$projectPath/lib/main_development.dart').existsSync()) {
+      return 'lib/main_development.dart';
+    }
+    return 'lib/main.dart';
+  }
+
+  String _detectReleaseTarget(String projectPath) {
+    if (File('$projectPath/lib/main_production.dart').existsSync()) {
+      return 'lib/main_production.dart';
+    }
+    return _detectDefaultTarget(projectPath);
   }
 
   Future<ProcessResult> _runSshPowerShell(
@@ -609,7 +1139,7 @@ Write-Output "Runner updated in $remoteBaseDir\\$appName"
     String script,
   ) {
     final encoded = base64Encode(
-       _encodeUtf16Le(script),
+      _encodeUtf16Le(script),
     );
     return Process.run('ssh', <String>[
       '-o',
@@ -682,6 +1212,7 @@ Host $deviceId
     required String appName,
     required String remoteBaseDir,
     required String remoteBaseDirScp,
+    String? postBuildScriptPath,
   }) {
     final home = Platform.environment['HOME'] ?? '';
     final file = File('$home/.config/flutter/custom_devices.json');
@@ -710,6 +1241,15 @@ Host $deviceId
         ? <String>['ping', '-c', '1', '-t', '1', host]
         : <String>['ping', '-c', '1', '-W', '1', host];
 
+    final postBuildCmd = postBuildScriptPath != null
+        ? <String>[
+            'sh',
+            postBuildScriptPath,
+            r'${appName}',
+            r'${engineRevision}',
+          ]
+        : null;
+
     devices.add(<String, Object?>{
       'id': deviceId,
       'label': deviceLabel,
@@ -718,21 +1258,26 @@ Host $deviceId
       'enabled': true,
       'ping': pingCmd,
       'pingSuccessRegex': null,
-      'postBuild': null,
+      'postBuild': postBuildCmd,
       'install': <String>[
         'scp',
         '-r',
         '-o',
         'BatchMode=yes',
         r'${localPath}',
-        '$user@$host:$remoteBaseDirScp/$appName/data/flutter_assets',
+        r'$user@$host:$remoteBaseDirScp/runners/${appName}/data/flutter_assets'
+            .replaceFirst(r'$user', user)
+            .replaceFirst(r'$host', host)
+            .replaceFirst(r'$remoteBaseDirScp', remoteBaseDirScp),
       ],
       'uninstall': <String>[
         'ssh',
         '-o',
         'BatchMode=yes',
         '$user@$host',
-        'powershell -NoProfile -ExecutionPolicy Bypass -File $remoteBaseDir\\uninstall.ps1',
+        r'powershell -NoProfile -ExecutionPolicy Bypass -File ' +
+            '$remoteBaseDir\\uninstall.ps1 ' +
+            r'${appName}',
       ],
       'runDebug': <String>[
         'ssh',
@@ -764,16 +1309,33 @@ Host $deviceId
     file.writeAsStringSync('${encoder.convert(root)}\n');
   }
 
-  void _updateIpInCustomDevicesJson({
+  void _replaceDeviceIpInConfigs({
     required String deviceId,
-    required String oldIp,
+    required String user,
     required String newIp,
   }) {
     final home = Platform.environment['HOME'] ?? '';
-    final file = File('$home/.config/flutter/custom_devices.json');
-    if (!file.existsSync()) return;
-    final content = file.readAsStringSync().replaceAll(oldIp, newIp);
-    file.writeAsStringSync(content);
+    final ipRegex = RegExp(r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b');
+
+    final customDevicesFile = File('$home/.config/flutter/custom_devices.json');
+    if (customDevicesFile.existsSync()) {
+      final updated = customDevicesFile
+          .readAsStringSync()
+          .replaceAllMapped(ipRegex, (Match m) {
+        final ip = m.group(0)!;
+        return ip == '127.0.0.1' ? ip : newIp;
+      });
+      customDevicesFile.writeAsStringSync(updated);
+    }
+
+    final postBuildFile = File('$home/.config/flutter/post_build_$deviceId.sh');
+    if (postBuildFile.existsSync()) {
+      final updated = postBuildFile.readAsStringSync().replaceAllMapped(
+        RegExp(RegExp.escape(user) + r'@\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}'),
+        (_) => '$user@$newIp',
+      );
+      postBuildFile.writeAsStringSync(updated);
+    }
   }
 
   void _upsertLaunchJson({
