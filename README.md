@@ -136,21 +136,59 @@ Once the MCP server is connected to your AI coding assistant, you can set up a b
 
 ---
 
-## Available MCP Tools (11 Tools)
+## Available MCP Tools (12 Tools)
 
 | # | Tool Name | Description |
 |---|-----------|-------------|
-| 1 | `generate_ssh_pairing` | Starts a temporary HTTP pairing server on the host and outputs a 1-line Administrator PowerShell command (`irm http://<IP>:8765 \| iex`) that enables OpenSSH Server and configures passwordless SSH with locale-independent SID ACLs (`*S-1-5-32-544:F`). |
-| 2 | `check_remote_windows` | Inspects the remote Windows device over SSH: OS version, hostname, free disk space, Git, FVM, Sidekick, Flutter SDK version, and Visual Studio 2022 C++ Build Tools (`VCTools`). |
-| 3 | `install_windows_toolchain` | Remotely installs **FVM**, **Sidekick** (with a Desktop shortcut), **Flutter SDK**, and **Microsoft Visual Studio 2022 Build Tools (`VCTools`)** via SSH. |
-| 4 | `sync_flutter_version` | Compares the host's active Flutter version (or `.fvmrc`) with the remote Windows device and uses FVM on Windows to install/activate the exact same version so Dart VM `kernel_blob.bin` snapshots always match. |
-| 5 | `setup_flutter_custom_device` | Configures `~/.config/flutter/custom_devices.json`, `~/.ssh/config`, `.vscode/launch.json`, the smart `postBuild` auto-rebuild hook, and deploys the `Session 1` Task Scheduler scripts (`FlutterRemoteRun` & `FlutterRemoteScreenshot`). |
-| 6 | `sync_and_rebuild_windows_runner` | Syncs the local Flutter project to an isolated folder (`projects/<appName>`) on the Windows device, runs `flutter build windows --debug`, and updates the cached runner (`runners/<appName>`). |
-| 7 | `take_remote_screenshot` | **Privacy-safe window-only screenshot:** Captures **only** the running Flutter application window (`PrintWindow` + `DWMWA_EXTENDED_FRAME_BOUNDS`) in `Session 1` and downloads the PNG to the host. Fails closed (`ERR_NO_APP` / `ERR_MINIMIZED`) if the app is not running. |
-| 8 | `set_dev_power_mode` | Toggles `keep_awake` (disables display & Modern Standby sleep timeouts on AC/battery during wireless debugging) or `restore_default` (15m/30m timeouts). |
-| 9 | `discover_and_update_ip` | Automatically discovers the Windows device's new IP address on the local Wi-Fi network (via mDNS `.local` or ARP/SSH scan) and updates `~/.ssh/config`, `custom_devices.json`, and the `postBuild` script. |
-| 10 | `build_and_fetch_release` | Syncs the project, runs `flutter build windows --release` on the remote Windows machine, packages the release output into `<appName>-windows-release.zip`, and downloads it to your local `build/` directory. |
-| 11 | `remote_app_control` | Controls and diagnoses the remote app: `status` (check Session 1 process), `logs` (read `stdout`/`stderr`), `stop` (terminate app), `launch_test` (test Session 1 launch), or `update_ip`. |
+| 1 | `manage_device_profiles` | Lists, saves, removes, or sets the default Windows device profile in `~/.config/flutter_remote_windows/config.json` (supports custom `ssh_port`, `use_tcp_ping` for firewalled VMs, and `keep_headless_session_alive` for RDP/headless machines). Once saved, other tools automatically resolve `host`, `user`, and `ssh_port` from the profile! |
+| 2 | `generate_ssh_pairing` | Starts a temporary HTTP pairing server on the host and outputs a 1-line Administrator PowerShell command (`irm http://<IP>:8765 \| iex`) plus a standalone script for remote/WAN VMs to enable OpenSSH Server with locale-independent SID ACLs (`*S-1-5-32-544:F`). |
+| 3 | `check_remote_windows` | Inspects the remote Windows device over SSH: OS version, hostname, free disk space, Git, FVM, Sidekick, Flutter SDK version, and Visual Studio 2022 C++ Build Tools (`VCTools`). |
+| 4 | `install_windows_toolchain` | Remotely installs **FVM**, **Sidekick** (with a Desktop shortcut), **Flutter SDK**, and **Microsoft Visual Studio 2022 Build Tools (`VCTools`)** via SSH. |
+| 5 | `sync_flutter_version` | Compares the host's active Flutter version (or `.fvmrc`) with the remote Windows device and uses FVM on Windows to install/activate the exact same version so Dart VM `kernel_blob.bin` snapshots always match. |
+| 6 | `setup_flutter_custom_device` | Saves the profile to `config.json`, configures `~/.config/flutter/custom_devices.json` (with TCP ping `nc -z` and custom `ssh_port`), `~/.ssh/config`, `.vscode/launch.json`, the smart `postBuild` auto-rebuild hook, and deploys the `Session 1` Task Scheduler scripts (`FlutterRemoteRun` & `FlutterRemoteScreenshot`). |
+| 7 | `sync_and_rebuild_windows_runner` | Syncs the local Flutter project to an isolated folder (`projects/<appName>`) on the Windows device, runs `flutter build windows --debug`, and updates the cached runner (`runners/<appName>`). |
+| 8 | `take_remote_screenshot` | **Privacy-safe window-only screenshot:** Captures **only** the running Flutter application window (`PrintWindow` + `DWMWA_EXTENDED_FRAME_BOUNDS`) in `Session 1` and downloads the PNG to the host. Fails closed (`ERR_NO_APP` / `ERR_MINIMIZED`) if the app is not running. |
+| 9 | `set_dev_power_mode` | Toggles `keep_awake` (disables display & Modern Standby sleep timeouts on AC/battery during wireless debugging) or `restore_default` (15m/30m timeouts). |
+| 10 | `discover_and_update_ip` | Automatically discovers the Windows device's new IP address on the local Wi-Fi network (via mDNS `.local` or ARP/SSH scan) and updates `config.json`, `~/.ssh/config`, `custom_devices.json`, and the `postBuild` script. |
+| 11 | `build_and_fetch_release` | Syncs the project, runs `flutter build windows --release` on the remote Windows machine, packages the release output into `<appName>-windows-release.zip`, and downloads it to your local `build/` directory. |
+| 12 | `remote_app_control` | Controls and diagnoses the remote app: `status` (check Session 1 process), `logs` (read `stdout`/`stderr`), `stop` (terminate app), `launch_test` (test Session 1 launch), or `update_ip`. |
+
+---
+
+## Multi-Device & Remote Office PC / Cloud VM Configuration (`config.json`)
+
+Device profiles are automatically stored in `~/.config/flutter_remote_windows/config.json`:
+
+```json
+{
+  "default_device": "rog-ally",
+  "devices": {
+    "rog-ally": {
+      "device_id": "rog-ally",
+      "label": "ASUS ROG Ally (Wireless)",
+      "host": "192.168.1.50",
+      "user": "devuser",
+      "ssh_port": 22,
+      "use_tcp_ping": true,
+      "keep_headless_session_alive": false,
+      "default_app_name": "my_flutter_app"
+    },
+    "office-pc": {
+      "device_id": "office-pc",
+      "label": "Office Windows PC (Tailscale / Remote)",
+      "host": "100.84.10.25",
+      "user": "devuser",
+      "ssh_port": 2222,
+      "use_tcp_ping": true,
+      "keep_headless_session_alive": true,
+      "default_app_name": "my_flutter_app"
+    }
+  }
+}
+```
+
+- **`use_tcp_ping: true`**: Uses `nc -z <host> <ssh_port>` instead of ICMP `ping` so cloud VMs (AWS/Azure/GCP) and office networks that block ICMP echo requests still show as online in `flutter devices`.
+- **`keep_headless_session_alive: true`**: Automatically runs `tscon.exe <SessionId> /dest:console` if an RDP session was disconnected (`Disc`), keeping the GPU and `Session 1` surface active on headless VMs and office PCs.
 
 ---
 

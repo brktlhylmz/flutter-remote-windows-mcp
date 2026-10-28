@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.3.0
+
+- **Device Profiles (`~/.config/flutter_remote_windows/config.json` & `manage_device_profiles`)**: Save multiple Windows device profiles (e.g., `rog-ally`, `office-pc`, `cloud-vm`) so you never have to repeat `host`, `user`, or `ssh_port` across tool calls.
+- **Remote Office PCs & Cloud VMs Support**:
+  - **Custom `ssh_port`**: Full support for non-standard SSH ports (`ssh -p` and `scp -P`) across all tools and the `postBuild` hook.
+  - **TCP Ping (`use_tcp_ping`)**: Uses `nc -z` against the SSH port instead of ICMP `ping` so cloud VMs (AWS/Azure/GCP) and firewalled office PCs that block ICMP echo requests appear online in `flutter devices`.
+  - **Headless VM / Disconnected RDP Console Keep-Alive (`keep_headless_session_alive`)**: Automatically re-attaches disconnected RDP sessions (`Disc`) to the physical/virtual console via `tscon.exe <SessionId> /dest:console` before launching the Flutter app or taking a window screenshot.
+
 ## 0.2.0
 
 - **Privacy-Safe Window-Only Screenshots (`take_remote_screenshot`)**: Uses Win32 `PrintWindow` (`PW_RENDERFULLCONTENT`) and `DwmGetWindowAttribute` (`DWMWA_EXTENDED_FRAME_BOUNDS`) to capture **only** the running Flutter application window without exposing the Windows desktop, taskbar, notifications, or personal windows. Fails closed (`ERR_NO_APP` / `ERR_MINIMIZED`) when the target app is not running.

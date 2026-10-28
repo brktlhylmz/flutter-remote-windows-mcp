@@ -1,8 +1,8 @@
 name: flutter_remote_windows_mcp
 description: >-
-  Model Context Protocol (MCP) server for wireless Flutter Windows desktop
-  development, custom-devices setup, and Session 1 GUI debugging from macOS and Linux.
-version: 0.2.0
+  Model Context Protocol (MCP) server for wireless and remote Flutter Windows
+  desktop development, custom-devices setup, and Session 1 GUI debugging from macOS and Linux.
+version: 0.3.0
 homepage: https://github.com/brktlhylmz/flutter-remote-windows-mcp
 repository: https://github.com/brktlhylmz/flutter-remote-windows-mcp
 issue_tracker: https://github.com/brktlhylmz/flutter-remote-windows-mcp/issues

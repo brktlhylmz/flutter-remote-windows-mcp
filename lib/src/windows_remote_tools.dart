@@ -2,20 +2,87 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'device_profile_store.dart';
 import 'powershell_templates.dart';
 
-/// Implements the MCP tools for managing wireless Flutter Windows devices.
+/// Implements the MCP tools for managing wireless and remote Flutter Windows devices.
 class WindowsRemoteTools {
+  WindowsRemoteTools({DeviceProfileStore? profileStore})
+      : _profileStore = profileStore ?? DeviceProfileStore();
+
+  final DeviceProfileStore _profileStore;
   HttpServer? _pairingServer;
   Timer? _pairingTimeout;
+
+  /// Exposed for testing and inspection.
+  DeviceProfileStore get profileStore => _profileStore;
 
   /// Returns the MCP tool definitions for `tools/list`.
   List<Map<String, Object?>> getToolDefinitions() {
     return <Map<String, Object?>>[
       <String, Object?>{
+        'name': 'manage_device_profiles',
+        'description':
+            'Lists, saves, removes, or sets the default remote Windows device profile in ~/.config/flutter_remote_windows/config.json. Supports LAN handhelds (ROG Ally) as well as remote office PCs and headless cloud VMs (custom ssh_port, TCP ping, and RDP session keep-alive). Once a profile is saved, other tools do not require repeating host/user/ssh_port.',
+        'inputSchema': <String, Object?>{
+          'type': 'object',
+          'properties': <String, Object?>{
+            'action': <String, Object?>{
+              'type': 'string',
+              'enum': <String>['list', 'save', 'set_default', 'remove'],
+              'description': 'Profile management action to perform.',
+            },
+            'device_id': <String, Object?>{
+              'type': 'string',
+              'description':
+                  'Profile ID (e.g. "rog-ally", "office-pc", "win-vm").',
+            },
+            'device_label': <String, Object?>{
+              'type': 'string',
+              'description':
+                  'Human-readable label (e.g. "Office Windows PC (Tailscale)").',
+            },
+            'host': <String, Object?>{
+              'type': 'string',
+              'description':
+                  'IP address or hostname (e.g. 192.168.1.50 or 100.84.10.25).',
+            },
+            'user': <String, Object?>{
+              'type': 'string',
+              'description': 'Windows SSH username (e.g. devuser).',
+            },
+            'ssh_port': <String, Object?>{
+              'type': 'integer',
+              'description': 'SSH port (default: 22).',
+            },
+            'use_tcp_ping': <String, Object?>{
+              'type': 'boolean',
+              'description':
+                  'Use TCP port check (nc -z) instead of ICMP ping in custom_devices.json so cloud VMs and firewalled office PCs appear online (default: true).',
+            },
+            'keep_headless_session_alive': <String, Object?>{
+              'type': 'boolean',
+              'description':
+                  'Automatically re-attach disconnected RDP sessions to the console (tscon /dest:console) so headless VMs and office PCs keep an active GPU surface in Session 1 (default: false).',
+            },
+            'app_name': <String, Object?>{
+              'type': 'string',
+              'description':
+                  'Optional default Flutter binary name for this profile.',
+            },
+            'set_default': <String, Object?>{
+              'type': 'boolean',
+              'description':
+                  'When saving, also make this the default device profile.',
+            },
+          },
+          'required': <String>['action'],
+        },
+      },
+      <String, Object?>{
         'name': 'generate_ssh_pairing',
         'description':
-            'Starts a temporary HTTP pairing server on the host and returns a short 1-line PowerShell command (irm http://<HOST_IP>:8765 | iex) to run on the Windows device (e.g. ASUS ROG Ally) to enable OpenSSH Server and authorize the host SSH key without typing passwords.',
+            'Starts a temporary HTTP pairing server on the host and returns a short 1-line PowerShell command (irm http://<HOST_IP>:8765 | iex) plus a standalone script for remote/WAN VMs to enable OpenSSH Server and authorize the host SSH key without typing passwords.',
         'inputSchema': <String, Object?>{
           'type': 'object',
           'properties': <String, Object?>{
@@ -35,21 +102,30 @@ class WindowsRemoteTools {
       <String, Object?>{
         'name': 'check_remote_windows',
         'description':
-            'Connects to the remote Windows device over SSH and checks OS version, hostname, free disk space, Git, FVM, Sidekick, Flutter SDK version, and Visual Studio 2022 C++ Build Tools status.',
+            'Connects to the remote Windows device over SSH and checks OS version, hostname, free disk space, Git, FVM, Sidekick, Flutter SDK version, and Visual Studio 2022 C++ Build Tools status. Uses saved profile from config.json if host/user are omitted.',
         'inputSchema': <String, Object?>{
           'type': 'object',
           'properties': <String, Object?>{
+            'device_id': <String, Object?>{
+              'type': 'string',
+              'description':
+                  'Optional saved device profile ID from config.json.',
+            },
             'host': <String, Object?>{
               'type': 'string',
               'description':
-                  'IP address or hostname of the Windows device (e.g. 192.168.1.50).',
+                  'IP address or hostname of the Windows device (optional if profile exists).',
             },
             'user': <String, Object?>{
               'type': 'string',
-              'description': 'Windows SSH username (e.g. devuser).',
+              'description':
+                  'Windows SSH username (optional if profile exists).',
+            },
+            'ssh_port': <String, Object?>{
+              'type': 'integer',
+              'description': 'SSH port (default: from profile or 22).',
             },
           },
-          'required': <String>['host', 'user'],
         },
       },
       <String, Object?>{
@@ -59,6 +135,11 @@ class WindowsRemoteTools {
         'inputSchema': <String, Object?>{
           'type': 'object',
           'properties': <String, Object?>{
+            'device_id': <String, Object?>{
+              'type': 'string',
+              'description':
+                  'Optional saved device profile ID from config.json.',
+            },
             'host': <String, Object?>{
               'type': 'string',
               'description': 'IP address or hostname of the Windows device.',
@@ -66,6 +147,10 @@ class WindowsRemoteTools {
             'user': <String, Object?>{
               'type': 'string',
               'description': 'Windows SSH username.',
+            },
+            'ssh_port': <String, Object?>{
+              'type': 'integer',
+              'description': 'SSH port (default: from profile or 22).',
             },
             'install_fvm': <String, Object?>{
               'type': 'boolean',
@@ -88,16 +173,20 @@ class WindowsRemoteTools {
                   'Install Microsoft Visual Studio 2022 Build Tools with VCTools workload via winget (default: false).',
             },
           },
-          'required': <String>['host', 'user'],
         },
       },
       <String, Object?>{
         'name': 'sync_flutter_version',
         'description':
-            'Checks the active Flutter SDK version on the Mac (or project .fvmrc) and compares it with the remote Windows device. If they differ, uses FVM on Windows to install and activate the exact same Flutter version so Dart VM kernel snapshots match 100%.',
+            'Checks the active Flutter SDK version on the host (or project .fvmrc) and compares it with the remote Windows device. If they differ, uses FVM on Windows to install and activate the exact same Flutter version so Dart VM kernel snapshots match 100%.',
         'inputSchema': <String, Object?>{
           'type': 'object',
           'properties': <String, Object?>{
+            'device_id': <String, Object?>{
+              'type': 'string',
+              'description':
+                  'Optional saved device profile ID from config.json.',
+            },
             'host': <String, Object?>{
               'type': 'string',
               'description': 'IP address of the Windows device.',
@@ -105,6 +194,10 @@ class WindowsRemoteTools {
             'user': <String, Object?>{
               'type': 'string',
               'description': 'Windows SSH username.',
+            },
+            'ssh_port': <String, Object?>{
+              'type': 'integer',
+              'description': 'SSH port (default: from profile or 22).',
             },
             'project_path': <String, Object?>{
               'type': 'string',
@@ -122,20 +215,19 @@ class WindowsRemoteTools {
                   'Force reinstall/activate on Windows even if versions appear identical (default: false).',
             },
           },
-          'required': <String>['host', 'user'],
         },
       },
       <String, Object?>{
         'name': 'setup_flutter_custom_device',
         'description':
-            'Configures Flutter custom-devices on the host (~/.config/flutter/custom_devices.json) including the smart postBuild hook (auto-rebuilds Windows C++ runner when plugins change), updates ~/.ssh/config, deploys Session 1 GUI & screenshot scripts to the Windows device, and updates .vscode/launch.json.',
+            'Configures Flutter custom-devices on the host (~/.config/flutter/custom_devices.json), saves the device profile to ~/.config/flutter_remote_windows/config.json, sets up the smart postBuild hook, updates ~/.ssh/config, and deploys Session 1 GUI & screenshot scripts to the Windows device.',
         'inputSchema': <String, Object?>{
           'type': 'object',
           'properties': <String, Object?>{
             'device_id': <String, Object?>{
               'type': 'string',
               'description':
-                  'Short device ID for flutter run -d <device_id> (e.g. "rog-ally").',
+                  'Short device ID for flutter run -d <device_id> (e.g. "rog-ally" or "office-pc").',
             },
             'device_label': <String, Object?>{
               'type': 'string',
@@ -145,11 +237,25 @@ class WindowsRemoteTools {
             'host': <String, Object?>{
               'type': 'string',
               'description':
-                  'IP address of the Windows device (e.g. 192.168.1.50).',
+                  'IP address or hostname of the Windows device (e.g. 192.168.1.50).',
             },
             'user': <String, Object?>{
               'type': 'string',
               'description': 'Windows SSH username (e.g. devuser).',
+            },
+            'ssh_port': <String, Object?>{
+              'type': 'integer',
+              'description': 'SSH port (default: 22).',
+            },
+            'use_tcp_ping': <String, Object?>{
+              'type': 'boolean',
+              'description':
+                  'Use TCP port check (nc -z) instead of ICMP ping so firewalled office PCs and cloud VMs work (default: true).',
+            },
+            'keep_headless_session_alive': <String, Object?>{
+              'type': 'boolean',
+              'description':
+                  'Enable tscon console re-attachment for headless VMs and RDP-disconnected office PCs (default: false).',
             },
             'app_name': <String, Object?>{
               'type': 'string',
@@ -172,7 +278,7 @@ class WindowsRemoteTools {
                   'Optional Dart entrypoint for .vscode/launch.json (default: "lib/main.dart").',
             },
           },
-          'required': <String>['device_id', 'host', 'user', 'app_name'],
+          'required': <String>['device_id', 'app_name'],
         },
       },
       <String, Object?>{
@@ -182,6 +288,11 @@ class WindowsRemoteTools {
         'inputSchema': <String, Object?>{
           'type': 'object',
           'properties': <String, Object?>{
+            'device_id': <String, Object?>{
+              'type': 'string',
+              'description':
+                  'Optional saved device profile ID from config.json.',
+            },
             'host': <String, Object?>{
               'type': 'string',
               'description': 'IP address of the Windows device.',
@@ -189,6 +300,10 @@ class WindowsRemoteTools {
             'user': <String, Object?>{
               'type': 'string',
               'description': 'Windows SSH username.',
+            },
+            'ssh_port': <String, Object?>{
+              'type': 'integer',
+              'description': 'SSH port (default: from profile or 22).',
             },
             'project_path': <String, Object?>{
               'type': 'string',
@@ -206,7 +321,7 @@ class WindowsRemoteTools {
                   'Dart entrypoint file (default: auto-detected from lib/main.dart or lib/main_development.dart).',
             },
           },
-          'required': <String>['host', 'user', 'project_path', 'app_name'],
+          'required': <String>['project_path', 'app_name'],
         },
       },
       <String, Object?>{
@@ -216,6 +331,11 @@ class WindowsRemoteTools {
         'inputSchema': <String, Object?>{
           'type': 'object',
           'properties': <String, Object?>{
+            'device_id': <String, Object?>{
+              'type': 'string',
+              'description':
+                  'Optional saved device profile ID from config.json.',
+            },
             'host': <String, Object?>{
               'type': 'string',
               'description': 'IP address of the Windows device.',
@@ -223,6 +343,10 @@ class WindowsRemoteTools {
             'user': <String, Object?>{
               'type': 'string',
               'description': 'Windows SSH username.',
+            },
+            'ssh_port': <String, Object?>{
+              'type': 'integer',
+              'description': 'SSH port (default: from profile or 22).',
             },
             'app_name': <String, Object?>{
               'type': 'string',
@@ -232,10 +356,9 @@ class WindowsRemoteTools {
             'output_path': <String, Object?>{
               'type': 'string',
               'description':
-                  'Local path on Mac to save the PNG screenshot (default: "/tmp/windows_remote_screenshot.png").',
+                  'Local path on host to save the PNG screenshot (default: "/tmp/windows_remote_screenshot.png").',
             },
           },
-          'required': <String>['host', 'user'],
         },
       },
       <String, Object?>{
@@ -245,6 +368,11 @@ class WindowsRemoteTools {
         'inputSchema': <String, Object?>{
           'type': 'object',
           'properties': <String, Object?>{
+            'device_id': <String, Object?>{
+              'type': 'string',
+              'description':
+                  'Optional saved device profile ID from config.json.',
+            },
             'host': <String, Object?>{
               'type': 'string',
               'description': 'IP address of the Windows device.',
@@ -252,6 +380,10 @@ class WindowsRemoteTools {
             'user': <String, Object?>{
               'type': 'string',
               'description': 'Windows SSH username.',
+            },
+            'ssh_port': <String, Object?>{
+              'type': 'integer',
+              'description': 'SSH port (default: from profile or 22).',
             },
             'mode': <String, Object?>{
               'type': 'string',
@@ -260,41 +392,46 @@ class WindowsRemoteTools {
                   '"keep_awake" disables sleep/display timeouts on AC & battery; "restore_default" sets 15m/30m timeouts.',
             },
           },
-          'required': <String>['host', 'user', 'mode'],
+          'required': <String>['mode'],
         },
       },
       <String, Object?>{
         'name': 'discover_and_update_ip',
         'description':
-            'Automatically finds the Windows device IP address on the local Wi-Fi network (via mDNS hostname like "windows-pc.local" or ARP/SSH scan) and updates ~/.ssh/config, custom_devices.json, and postBuild scripts.',
+            'Automatically finds the Windows device IP address on the local Wi-Fi network (via mDNS hostname like "windows-pc.local" or ARP/SSH scan) and updates config.json, ~/.ssh/config, custom_devices.json, and postBuild scripts.',
         'inputSchema': <String, Object?>{
           'type': 'object',
           'properties': <String, Object?>{
+            'device_id': <String, Object?>{
+              'type': 'string',
+              'description':
+                  'Device ID in config.json / custom_devices.json (default: default profile or "rog-ally").',
+            },
             'user': <String, Object?>{
               'type': 'string',
-              'description': 'Windows SSH username (e.g. devuser).',
+              'description':
+                  'Windows SSH username (optional if profile exists).',
             },
             'windows_hostname': <String, Object?>{
               'type': 'string',
               'description':
                   'Optional Windows machine hostname (e.g. "rog-ally" or "windows-pc"). If omitted, scans ARP table for any host accepting SSH for user.',
             },
-            'device_id': <String, Object?>{
-              'type': 'string',
-              'description':
-                  'Device ID in custom_devices.json (default: "rog-ally").',
-            },
           },
-          'required': <String>['user'],
         },
       },
       <String, Object?>{
         'name': 'build_and_fetch_release',
         'description':
-            'Syncs the local Flutter project to the Windows device, builds a production Windows Release bundle (flutter build windows --release), packages the Release folder into a .zip archive, and downloads it back to the local Mac project directory.',
+            'Syncs the local Flutter project to the Windows device, builds a production Windows Release bundle (flutter build windows --release), packages the Release folder into a .zip archive, and downloads it back to the local project directory.',
         'inputSchema': <String, Object?>{
           'type': 'object',
           'properties': <String, Object?>{
+            'device_id': <String, Object?>{
+              'type': 'string',
+              'description':
+                  'Optional saved device profile ID from config.json.',
+            },
             'host': <String, Object?>{
               'type': 'string',
               'description': 'IP address of the Windows device.',
@@ -302,6 +439,10 @@ class WindowsRemoteTools {
             'user': <String, Object?>{
               'type': 'string',
               'description': 'Windows SSH username.',
+            },
+            'ssh_port': <String, Object?>{
+              'type': 'integer',
+              'description': 'SSH port (default: from profile or 22).',
             },
             'project_path': <String, Object?>{
               'type': 'string',
@@ -317,7 +458,7 @@ class WindowsRemoteTools {
                   'Dart entrypoint file for release build (default: auto-detected from lib/main_production.dart or lib/main.dart).',
             },
           },
-          'required': <String>['host', 'user', 'project_path', 'app_name'],
+          'required': <String>['project_path', 'app_name'],
         },
       },
       <String, Object?>{
@@ -334,9 +475,14 @@ class WindowsRemoteTools {
                 'logs',
                 'stop',
                 'launch_test',
-                'update_ip'
+                'update_ip',
               ],
               'description': 'Action to perform.',
+            },
+            'device_id': <String, Object?>{
+              'type': 'string',
+              'description':
+                  'Device ID in config.json / custom_devices.json (optional if default profile exists).',
             },
             'host': <String, Object?>{
               'type': 'string',
@@ -346,22 +492,21 @@ class WindowsRemoteTools {
               'type': 'string',
               'description': 'Windows SSH username.',
             },
+            'ssh_port': <String, Object?>{
+              'type': 'integer',
+              'description': 'SSH port (default: from profile or 22).',
+            },
             'app_name': <String, Object?>{
               'type': 'string',
               'description':
                   'Optional Flutter app binary name (defaults to the active app in active_app.txt).',
-            },
-            'device_id': <String, Object?>{
-              'type': 'string',
-              'description':
-                  'Device ID in custom_devices.json (used with update_ip, default: "rog-ally").',
             },
             'new_ip': <String, Object?>{
               'type': 'string',
               'description': 'New IP address when action is "update_ip".',
             },
           },
-          'required': <String>['action', 'host', 'user'],
+          'required': <String>['action'],
         },
       },
     ];
@@ -370,6 +515,8 @@ class WindowsRemoteTools {
   /// Dispatches a `tools/call` invocation by name.
   Future<String> callTool(String name, Map<String, Object?> args) async {
     switch (name) {
+      case 'manage_device_profiles':
+        return _manageDeviceProfiles(args);
       case 'generate_ssh_pairing':
         return _generateSshPairing(args);
       case 'check_remote_windows':
@@ -394,6 +541,84 @@ class WindowsRemoteTools {
         return _remoteAppControl(args);
       default:
         throw ArgumentError('Unknown tool: $name');
+    }
+  }
+
+  Future<String> _manageDeviceProfiles(Map<String, Object?> args) async {
+    final action = args['action'] as String;
+    switch (action) {
+      case 'list':
+        final profiles = _profileStore.listProfiles();
+        final defaultId = _profileStore.getDefaultDeviceId();
+        if (profiles.isEmpty) {
+          return 'No device profiles saved yet in ${_profileStore.configFilePath}.';
+        }
+        const encoder = JsonEncoder.withIndent('  ');
+        return 'Config file: ${_profileStore.configFilePath}\n'
+            'Default device: ${defaultId ?? "none"}\n'
+            'Profiles:\n${encoder.convert(profiles.map((k, v) => MapEntry(k, v.toJson())))}';
+
+      case 'save':
+        final deviceId = (args['device_id'] as String?)?.trim() ?? '';
+        final host = (args['host'] as String?)?.trim() ?? '';
+        final user = (args['user'] as String?)?.trim() ?? '';
+        if (deviceId.isEmpty || host.isEmpty || user.isEmpty) {
+          throw ArgumentError(
+            'device_id, host, and user are required when action is "save".',
+          );
+        }
+        final existing = _profileStore.listProfiles()[deviceId];
+        final profile = DeviceProfile(
+          deviceId: deviceId,
+          label: (args['device_label'] as String?)?.trim() ??
+              existing?.label ??
+              '$deviceId (Wireless Windows)',
+          host: host,
+          user: user,
+          sshPort: (args['ssh_port'] as int?) ?? existing?.sshPort ?? 22,
+          useTcpPing:
+              (args['use_tcp_ping'] as bool?) ?? existing?.useTcpPing ?? true,
+          keepHeadlessSessionAlive:
+              (args['keep_headless_session_alive'] as bool?) ??
+                  existing?.keepHeadlessSessionAlive ??
+                  false,
+          defaultAppName:
+              (args['app_name'] as String?)?.trim() ?? existing?.defaultAppName,
+        );
+        final setAsDefault = (args['set_default'] as bool?) ?? false;
+        _profileStore.upsertProfile(profile, setAsDefault: setAsDefault);
+        _upsertSshConfig(
+          deviceId: profile.deviceId,
+          host: profile.host,
+          user: profile.user,
+          sshPort: profile.sshPort,
+        );
+        return 'Saved device profile "${profile.deviceId}" (${profile.user}@${profile.host}:${profile.sshPort}) to ${_profileStore.configFilePath}.';
+
+      case 'set_default':
+        final deviceId = (args['device_id'] as String?)?.trim() ?? '';
+        if (deviceId.isEmpty) {
+          throw ArgumentError(
+            'device_id is required when action is "set_default".',
+          );
+        }
+        final ok = _profileStore.setDefaultDevice(deviceId);
+        return ok
+            ? 'Set "$deviceId" as the default device in ${_profileStore.configFilePath}.'
+            : 'Profile "$deviceId" not found in ${_profileStore.configFilePath}.';
+
+      case 'remove':
+        final deviceId = (args['device_id'] as String?)?.trim() ?? '';
+        if (deviceId.isEmpty) {
+          throw ArgumentError('device_id is required when action is "remove".');
+        }
+        final removed = _profileStore.removeProfile(deviceId);
+        return removed
+            ? 'Removed profile "$deviceId" from ${_profileStore.configFilePath}.'
+            : 'Profile "$deviceId" not found.';
+
+      default:
+        throw ArgumentError('Unsupported profile action: $action');
     }
   }
 
@@ -438,12 +663,12 @@ class WindowsRemoteTools {
     return '''
 SSH Pairing Server started on port $port (active for ${timeoutSeconds}s).
 
-Run this 1-line command in Administrator PowerShell on the Windows device:
+Option A — Same Wi-Fi / LAN (1-line command in Administrator PowerShell):
 ```powershell
 irm http://$localIp:$port | iex
 ```
 
-Or if OpenSSH is not started yet, run the full script directly in Administrator PowerShell:
+Option B — Remote Office PC / Cloud VM (paste directly in Administrator PowerShell):
 ```powershell
 $script
 ```
@@ -451,8 +676,7 @@ $script
   }
 
   Future<String> _checkRemoteWindows(Map<String, Object?> args) async {
-    final host = args['host'] as String;
-    final user = args['user'] as String;
+    final profile = _profileStore.resolve(args);
 
     const psCheck = r'''
 $os = (Get-CimInstance Win32_OperatingSystem).Caption
@@ -476,16 +700,20 @@ Write-Output "Flutter: $flutterVer"
 Write-Output "Visual Studio Build Tools: $vs"
 ''';
 
-    final res = await _runSshPowerShell(host, user, psCheck);
+    final res = await _runSshPowerShell(
+      profile.host,
+      profile.user,
+      psCheck,
+      sshPort: profile.sshPort,
+    );
     if (res.exitCode != 0) {
-      return 'Failed to connect via SSH to $user@$host (exit ${res.exitCode}):\n${res.stderr}\n${res.stdout}';
+      return 'Failed to connect via SSH to ${profile.user}@${profile.host}:${profile.sshPort} (exit ${res.exitCode}):\n${res.stderr}\n${res.stdout}';
     }
-    return 'Remote Windows Status ($user@$host):\n${res.stdout}';
+    return 'Remote Windows Status (${profile.deviceId} -> ${profile.user}@${profile.host}:${profile.sshPort}):\n${res.stdout}';
   }
 
   Future<String> _installWindowsToolchain(Map<String, Object?> args) async {
-    final host = args['host'] as String;
-    final user = args['user'] as String;
+    final profile = _profileStore.resolve(args);
     final installFvm = (args['install_fvm'] as bool?) ?? true;
     final installSidekick = (args['install_sidekick'] as bool?) ?? true;
     final flutterChannel = (args['flutter_channel'] as String?) ?? 'stable';
@@ -507,7 +735,12 @@ if ($userPath -notlike '*AppData\Local\fvm*') {
 }
 Write-Output ("FVM installed: " + (& $fvmExe.FullName --version))
 ''';
-      final res = await _runSshPowerShell(host, user, fvmScript);
+      final res = await _runSshPowerShell(
+        profile.host,
+        profile.user,
+        fvmScript,
+        sshPort: profile.sshPort,
+      );
       logs.writeln(res.stdout.toString().trim());
     }
 
@@ -526,7 +759,12 @@ $sc.WorkingDirectory = $exe.DirectoryName
 $sc.Save()
 Write-Output ("Sidekick installed with Desktop shortcut: " + $exe.FullName)
 ''';
-      final res = await _runSshPowerShell(host, user, sidekickScript);
+      final res = await _runSshPowerShell(
+        profile.host,
+        profile.user,
+        sidekickScript,
+        sshPort: profile.sshPort,
+      );
       logs.writeln(res.stdout.toString().trim());
     }
 
@@ -536,7 +774,12 @@ Write-Output ("Sidekick installed with Desktop shortcut: " + $exe.FullName)
 & \$fvm install $flutterChannel --setup
 & \$fvm global $flutterChannel --force
 ''';
-      final res = await _runSshPowerShell(host, user, flutterScript);
+      final res = await _runSshPowerShell(
+        profile.host,
+        profile.user,
+        flutterScript,
+        sshPort: profile.sshPort,
+      );
       logs.writeln(res.stdout.toString().trim());
     }
 
@@ -544,9 +787,11 @@ Write-Output ("Sidekick installed with Desktop shortcut: " + $exe.FullName)
       const vsCmd =
           'winget install --id=Microsoft.VisualStudio.2022.BuildTools -e --source winget --accept-source-agreements --accept-package-agreements --override "--quiet --wait --norestart --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"';
       final res = await Process.run('ssh', <String>[
+        '-p',
+        '${profile.sshPort}',
         '-o',
         'BatchMode=yes',
-        '$user@$host',
+        '${profile.user}@${profile.host}',
         vsCmd,
       ]);
       logs.writeln(res.stdout.toString().trim());
@@ -556,10 +801,9 @@ Write-Output ("Sidekick installed with Desktop shortcut: " + $exe.FullName)
   }
 
   Future<String> _syncFlutterVersion(Map<String, Object?> args) async {
-    final host = args['host'] as String;
-    final user = args['user'] as String;
+    final profile = _profileStore.resolve(args);
     final projectPath = args['project_path'] as String?;
-    final appName = args['app_name'] as String?;
+    final appName = (args['app_name'] as String?) ?? profile.defaultAppName;
     final force = (args['force'] as bool?) ?? false;
 
     final localInfo =
@@ -575,7 +819,12 @@ if (Test-Path $flutterBin) {
   Write-Output "{}"
 }
 ''';
-    final remoteRes = await _runSshPowerShell(host, user, remoteVerPs);
+    final remoteRes = await _runSshPowerShell(
+      profile.host,
+      profile.user,
+      remoteVerPs,
+      sshPort: profile.sshPort,
+    );
     var remoteVersion = '';
     var remoteEngine = '';
     try {
@@ -592,7 +841,7 @@ if (Test-Path $flutterBin) {
         localVersion.isNotEmpty &&
         localVersion == remoteVersion &&
         (localEngine.isEmpty || localEngine == remoteEngine)) {
-      return 'Flutter versions are already in sync! Both Mac and Windows ($host) are on Flutter $localVersion (engine: $localEngine).';
+      return 'Flutter versions are already in sync! Both host and Windows (${profile.host}) are on Flutter $localVersion (engine: $localEngine).';
     }
 
     final syncPs = '''
@@ -600,10 +849,15 @@ if (Test-Path $flutterBin) {
 & \$fvm install $localVersion --setup
 & \$fvm global $localVersion --force
 ''';
-    final syncRes = await _runSshPowerShell(host, user, syncPs);
+    final syncRes = await _runSshPowerShell(
+      profile.host,
+      profile.user,
+      syncPs,
+      sshPort: profile.sshPort,
+    );
     final buf = StringBuffer()
       ..writeln(
-        'Synced Windows ($host) Flutter version from "${remoteVersion.isEmpty ? 'none' : remoteVersion}" to "$localVersion":',
+        'Synced Windows (${profile.host}) Flutter version from "${remoteVersion.isEmpty ? 'none' : remoteVersion}" to "$localVersion":',
       )
       ..writeln(syncRes.stdout.toString().trim());
 
@@ -612,8 +866,10 @@ if (Test-Path $flutterBin) {
         appName != null &&
         appName.isNotEmpty) {
       final rebuildOut = await _syncAndRebuildWindowsRunner(<String, Object?>{
-        'host': host,
-        'user': user,
+        'device_id': profile.deviceId,
+        'host': profile.host,
+        'user': profile.user,
+        'ssh_port': profile.sshPort,
         'project_path': projectPath,
         'app_name': appName,
       });
@@ -624,16 +880,26 @@ if (Test-Path $flutterBin) {
   }
 
   Future<String> _setupFlutterCustomDevice(Map<String, Object?> args) async {
-    final deviceId = args['device_id'] as String;
-    final deviceLabel =
-        (args['device_label'] as String?) ?? '$deviceId (Wireless Windows)';
-    final host = args['host'] as String;
-    final user = args['user'] as String;
-    final appName = args['app_name'] as String;
+    final profile = _profileStore.resolve(args);
+    final deviceId = profile.deviceId;
+    final deviceLabel = profile.label;
+    final host = profile.host;
+    final user = profile.user;
+    final sshPort = profile.sshPort;
+    final useTcpPing = profile.useTcpPing;
+    final keepHeadless = profile.keepHeadlessSessionAlive;
+    final appName = (args['app_name'] as String?) ??
+        profile.defaultAppName ??
+        'my_flutter_app';
     final enableAutoPostBuild =
         (args['enable_auto_post_build'] as bool?) ?? true;
     final projectPath = args['project_path'] as String?;
     final target = (args['target'] as String?) ?? 'lib/main.dart';
+
+    // Save/update profile in ~/.config/flutter_remote_windows/config.json
+    _profileStore.upsertProfile(
+      profile.copyWith(defaultAppName: appName),
+    );
 
     final remoteBaseDir = 'C:\\Users\\$user\\flutter_remote';
     final remoteBaseDirScp = 'C:/Users/$user/flutter_remote';
@@ -641,7 +907,12 @@ if (Test-Path $flutterBin) {
     const screenshotTaskName = 'FlutterRemoteScreenshot';
 
     // 1. Update ~/.ssh/config
-    _upsertSshConfig(deviceId: deviceId, host: host, user: user);
+    _upsertSshConfig(
+      deviceId: deviceId,
+      host: host,
+      user: user,
+      sshPort: sshPort,
+    );
 
     // 2. Enable custom-devices in Flutter
     await Process.run('flutter', <String>['config', '--enable-custom-devices']);
@@ -659,6 +930,7 @@ if (Test-Path $flutterBin) {
         user: user,
         remoteBaseDir: remoteBaseDir,
         remoteBaseDirScp: remoteBaseDirScp,
+        sshPort: sshPort,
       ),
     );
     await Process.run('chmod', <String>['+x', postBuildScriptPath]);
@@ -697,15 +969,23 @@ if (Test-Path $flutterBin) {
           ),
         );
 
+      final headlessCmd = keepHeadless
+          ? '"1" | Set-Content -Path "$remoteBaseDir\\keep_headless.flag" -Encoding Ascii'
+          : 'Remove-Item "$remoteBaseDir\\keep_headless.flag" -Force -ErrorAction SilentlyContinue';
+
       await _runSshPowerShell(
         host,
         user,
         'New-Item -Force -ItemType Directory "$remoteBaseDir\\$appName\\data" | Out-Null; '
         'New-Item -Force -ItemType Directory "$remoteBaseDir\\runners\\$appName\\data" | Out-Null; '
-        'New-Item -Force -ItemType Directory "$remoteBaseDir\\projects" | Out-Null',
+        'New-Item -Force -ItemType Directory "$remoteBaseDir\\projects" | Out-Null; '
+        '$headlessCmd',
+        sshPort: sshPort,
       );
 
       await Process.run('scp', <String>[
+        '-P',
+        '$sshPort',
         '-o',
         'BatchMode=yes',
         s1File.path,
@@ -717,6 +997,8 @@ if (Test-Path $flutterBin) {
       ]);
 
       await Process.run('ssh', <String>[
+        '-p',
+        '$sshPort',
         '-o',
         'BatchMode=yes',
         '$user@$host',
@@ -733,6 +1015,8 @@ if (Test-Path $flutterBin) {
       deviceLabel: deviceLabel,
       host: host,
       user: user,
+      sshPort: sshPort,
+      useTcpPing: useTcpPing,
       appName: appName,
       remoteBaseDir: remoteBaseDir,
       remoteBaseDirScp: remoteBaseDirScp,
@@ -750,18 +1034,21 @@ if (Test-Path $flutterBin) {
     }
 
     return '''
-Successfully configured Flutter Custom Device "$deviceId" ($deviceLabel) at $user@$host!
+Successfully configured Flutter Custom Device "$deviceId" ($deviceLabel) at $user@$host:$sshPort!
+- Saved profile to ${_profileStore.configFilePath}
 - Session 1 interactive scheduled tasks ($scheduledTaskName & $screenshotTaskName) deployed to $remoteBaseDir
 - Smart postBuild hook: ${enableAutoPostBuild ? postBuildScriptPath : 'disabled'}
-- Updated ~/.config/flutter/custom_devices.json
+- Updated ~/.config/flutter/custom_devices.json (TCP ping: $useTcpPing, Headless console keep-alive: $keepHeadless)
 - Updated ~/.ssh/config
 ${projectPath != null ? '- Updated $projectPath/.vscode/launch.json' : ''}
 ''';
   }
 
   Future<String> _syncAndRebuildWindowsRunner(Map<String, Object?> args) async {
-    final host = args['host'] as String;
-    final user = args['user'] as String;
+    final profile = _profileStore.resolve(args);
+    final host = profile.host;
+    final user = profile.user;
+    final sshPort = profile.sshPort;
     final projectPath = args['project_path'] as String;
     final appName = args['app_name'] as String;
     final explicitTarget = args['target'] as String?;
@@ -773,8 +1060,10 @@ ${projectPath != null ? '- Updated $projectPath/.vscode/launch.json' : ''}
 
     // Ensure Flutter version parity first
     await _syncFlutterVersion(<String, Object?>{
+      'device_id': profile.deviceId,
       'host': host,
       'user': user,
+      'ssh_port': sshPort,
       'project_path': projectPath,
     });
 
@@ -786,6 +1075,7 @@ ${projectPath != null ? '- Updated $projectPath/.vscode/launch.json' : ''}
       'New-Item -Force -ItemType Directory "$remoteProjectDir" | Out-Null; '
       'New-Item -Force -ItemType Directory "$remoteBaseDir\\runners\\$appName" | Out-Null; '
       'New-Item -Force -ItemType Directory "$remoteBaseDir\\$appName" | Out-Null',
+      sshPort: sshPort,
     );
 
     final itemsToCopy = <String>[];
@@ -803,6 +1093,8 @@ ${projectPath != null ? '- Updated $projectPath/.vscode/launch.json' : ''}
     }
 
     final scpRes = await Process.run('scp', <String>[
+      '-P',
+      '$sshPort',
       '-r',
       '-o',
       'BatchMode=yes',
@@ -823,7 +1115,12 @@ Copy-Item -Recurse -Force "$remoteProjectDir\\build\\windows\\x64\\runner\\Debug
 Write-Output "Runner updated in $remoteBaseDir\\runners\\$appName"
 ''';
 
-    final buildRes = await _runSshPowerShell(host, user, buildPs);
+    final buildRes = await _runSshPowerShell(
+      host,
+      user,
+      buildPs,
+      sshPort: sshPort,
+    );
     if (buildRes.exitCode != 0) {
       return 'Remote Windows build failed (exit ${buildRes.exitCode}):\n${buildRes.stdout}\n${buildRes.stderr}';
     }
@@ -832,8 +1129,10 @@ Write-Output "Runner updated in $remoteBaseDir\\runners\\$appName"
   }
 
   Future<String> _takeRemoteScreenshot(Map<String, Object?> args) async {
-    final host = args['host'] as String;
-    final user = args['user'] as String;
+    final profile = _profileStore.resolve(args);
+    final host = profile.host;
+    final user = profile.user;
+    final sshPort = profile.sshPort;
     final appName = (args['app_name'] as String?)?.trim() ?? '';
     final outputPath = (args['output_path'] as String?) ??
         '/tmp/windows_remote_screenshot.png';
@@ -846,6 +1145,14 @@ Write-Output "Runner updated in $remoteBaseDir\\runners\\$appName"
 
     final capturePs = '''
 $setTargetCmd
+if (Test-Path "$remoteBaseDir\\keep_headless.flag") {
+  \$q = query session \$env:USERNAME 2>\$null
+  foreach (\$line in \$q) {
+    if (\$line -match "\\s+(\\d+)\\s+Disc") {
+      tscon.exe \$Matches[1] /dest:console 2>\$null | Out-Null
+    }
+  }
+}
 Remove-Item "$remoteBaseDir\\screenshot.png","$remoteBaseDir\\screenshot.done","$remoteBaseDir\\screenshot.status" -Force -ErrorAction SilentlyContinue
 schtasks /Run /TN FlutterRemoteScreenshot | Out-Null
 \$count = 0
@@ -862,13 +1169,20 @@ if (Test-Path "$remoteBaseDir\\screenshot.status") {
 }
 ''';
 
-    final res = await _runSshPowerShell(host, user, capturePs);
+    final res = await _runSshPowerShell(
+      host,
+      user,
+      capturePs,
+      sshPort: sshPort,
+    );
     final statusOut = res.stdout.toString().trim();
     if (!statusOut.contains('CAPTURED')) {
       return 'Screenshot blocked or failed on $host: $statusOut';
     }
 
     final scpRes = await Process.run('scp', <String>[
+      '-P',
+      '$sshPort',
       '-o',
       'BatchMode=yes',
       '$user@$host:$remoteBaseDirScp/screenshot.png',
@@ -882,8 +1196,7 @@ if (Test-Path "$remoteBaseDir\\screenshot.status") {
   }
 
   Future<String> _setDevPowerMode(Map<String, Object?> args) async {
-    final host = args['host'] as String;
-    final user = args['user'] as String;
+    final profile = _profileStore.resolve(args);
     final mode = args['mode'] as String;
 
     final ps = mode == 'keep_awake'
@@ -902,15 +1215,35 @@ powercfg /change standby-timeout-dc 15
 Write-Output "Power mode restored to default timeouts."
 ''';
 
-    final res = await _runSshPowerShell(host, user, ps);
+    final res = await _runSshPowerShell(
+      profile.host,
+      profile.user,
+      ps,
+      sshPort: profile.sshPort,
+    );
     return res.stdout.toString().trim();
   }
 
   Future<String> _discoverAndUpdateIp(Map<String, Object?> args) async {
-    final user = args['user'] as String;
+    final profiles = _profileStore.listProfiles();
+    final requestedId = (args['device_id'] as String?)?.trim();
+    final defaultId = _profileStore.getDefaultDeviceId();
+    final deviceId = (requestedId != null && requestedId.isNotEmpty)
+        ? requestedId
+        : (defaultId ?? 'rog-ally');
+    final existing = profiles[deviceId];
+
+    final user = ((args['user'] as String?)?.trim().isNotEmpty == true)
+        ? (args['user'] as String).trim()
+        : (existing?.user ?? '');
+    if (user.isEmpty) {
+      throw ArgumentError(
+        'Missing "user". Pass "user" or save a profile for "$deviceId" first.',
+      );
+    }
+    final sshPort = existing?.sshPort ?? 22;
     final windowsHostname =
         ((args['windows_hostname'] as String?) ?? '').trim().toLowerCase();
-    final deviceId = (args['device_id'] as String?) ?? 'rog-ally';
 
     String? discoveredIp;
 
@@ -949,6 +1282,8 @@ Write-Output "Power mode restored to default timeouts."
         final ip = m.group(1);
         if (ip == null || ip.endsWith('.255') || ip.endsWith('.1')) continue;
         final sshCheck = await Process.run('ssh', <String>[
+          '-p',
+          '$sshPort',
           '-o',
           'BatchMode=yes',
           '-o',
@@ -973,19 +1308,29 @@ Write-Output "Power mode restored to default timeouts."
       return 'Could not automatically discover IP for $targetLabel on the local network.';
     }
 
-    _upsertSshConfig(deviceId: deviceId, host: discoveredIp, user: user);
+    if (existing != null) {
+      _profileStore.upsertProfile(existing.copyWith(host: discoveredIp));
+    }
+    _upsertSshConfig(
+      deviceId: deviceId,
+      host: discoveredIp,
+      user: user,
+      sshPort: sshPort,
+    );
     _replaceDeviceIpInConfigs(
       deviceId: deviceId,
       user: user,
       newIp: discoveredIp,
     );
 
-    return 'Discovered Windows device at IP $discoveredIp and updated ~/.ssh/config, custom_devices.json, and postBuild hook!';
+    return 'Discovered Windows device at IP $discoveredIp and updated config.json, ~/.ssh/config, custom_devices.json, and postBuild hook!';
   }
 
   Future<String> _buildAndFetchRelease(Map<String, Object?> args) async {
-    final host = args['host'] as String;
-    final user = args['user'] as String;
+    final profile = _profileStore.resolve(args);
+    final host = profile.host;
+    final user = profile.user;
+    final sshPort = profile.sshPort;
     final projectPath = args['project_path'] as String;
     final appName = args['app_name'] as String;
     final explicitTarget = args['target'] as String?;
@@ -1002,6 +1347,7 @@ Write-Output "Power mode restored to default timeouts."
       host,
       user,
       'New-Item -Force -ItemType Directory "$remoteProjectDir" | Out-Null',
+      sshPort: sshPort,
     );
 
     final itemsToCopy = <String>[];
@@ -1019,6 +1365,8 @@ Write-Output "Power mode restored to default timeouts."
     }
 
     await Process.run('scp', <String>[
+      '-P',
+      '$sshPort',
       '-r',
       '-o',
       'BatchMode=yes',
@@ -1036,7 +1384,12 @@ Compress-Archive -Path "$remoteProjectDir\\build\\windows\\x64\\runner\\Release\
 Write-Output "RELEASE_ZIP_READY"
 ''';
 
-    final res = await _runSshPowerShell(host, user, releasePs);
+    final res = await _runSshPowerShell(
+      host,
+      user,
+      releasePs,
+      sshPort: sshPort,
+    );
     if (!res.stdout.toString().contains('RELEASE_ZIP_READY')) {
       return 'Release build failed on $host:\n${res.stdout}\n${res.stderr}';
     }
@@ -1048,6 +1401,8 @@ Write-Output "RELEASE_ZIP_READY"
     final localZipPath = '${localBuildDir.path}/$appName-windows-release.zip';
 
     final scpRes = await Process.run('scp', <String>[
+      '-P',
+      '$sshPort',
       '-o',
       'BatchMode=yes',
       '$user@$host:$remoteZipScp',
@@ -1062,18 +1417,23 @@ Write-Output "RELEASE_ZIP_READY"
 
   Future<String> _remoteAppControl(Map<String, Object?> args) async {
     final action = args['action'] as String;
-    final host = args['host'] as String;
-    final user = args['user'] as String;
+    final profile = _profileStore.resolve(args);
+    final host = profile.host;
+    final user = profile.user;
+    final sshPort = profile.sshPort;
+    final deviceId = profile.deviceId;
     final explicitAppName = (args['app_name'] as String?)?.trim() ?? '';
-    final deviceId = (args['device_id'] as String?) ?? 'rog-ally';
     final remoteBaseDir = 'C:\\Users\\$user\\flutter_remote';
 
-    var appName = explicitAppName;
+    var appName = explicitAppName.isNotEmpty
+        ? explicitAppName
+        : (profile.defaultAppName ?? '');
     if (appName.isEmpty && action != 'update_ip') {
       final activeRes = await _runSshPowerShell(
         host,
         user,
         'if (Test-Path "$remoteBaseDir\\active_app.txt") { (Get-Content "$remoteBaseDir\\active_app.txt" -Raw).Trim() }',
+        sshPort: sshPort,
       );
       appName = activeRes.stdout.toString().trim();
       if (appName.isEmpty) {
@@ -1088,6 +1448,7 @@ Write-Output "RELEASE_ZIP_READY"
           user,
           'Get-Process -Name "$appName" -ErrorAction SilentlyContinue | Select-Object Id, ProcessName, SessionId; '
           'Get-ScheduledTaskInfo -TaskName FlutterRemoteRun',
+          sshPort: sshPort,
         );
         return res.stdout.toString().trim().isEmpty
             ? '$appName is not currently running on $host.'
@@ -1099,6 +1460,7 @@ Write-Output "RELEASE_ZIP_READY"
           user,
           'Write-Output "=== STDOUT ==="; Get-Content "$remoteBaseDir\\app_out.log" -ErrorAction SilentlyContinue; '
           'Write-Output "=== STDERR ==="; Get-Content "$remoteBaseDir\\app_err.log" -ErrorAction SilentlyContinue',
+          sshPort: sshPort,
         );
         return res.stdout.toString();
 
@@ -1108,6 +1470,7 @@ Write-Output "RELEASE_ZIP_READY"
           user,
           'Remove-Item "$remoteBaseDir\\running.lock" -Force -ErrorAction SilentlyContinue; '
           'Stop-Process -Name "$appName" -Force -ErrorAction SilentlyContinue',
+          sshPort: sshPort,
         );
         return 'Stopped $appName on $host.';
 
@@ -1126,6 +1489,7 @@ Write-Output "RELEASE_ZIP_READY"
           'Get-Process -Name "$appName" -ErrorAction SilentlyContinue | Select-Object Id, ProcessName, SessionId; '
           'Get-Content "$remoteBaseDir\\app_out.log" -ErrorAction SilentlyContinue; '
           'Get-Content "$remoteBaseDir\\app_err.log" -ErrorAction SilentlyContinue',
+          sshPort: sshPort,
         );
         return res.stdout.toString();
 
@@ -1134,13 +1498,19 @@ Write-Output "RELEASE_ZIP_READY"
         if (newIp == null || newIp.isEmpty) {
           throw ArgumentError('new_ip is required when action is "update_ip".');
         }
-        _upsertSshConfig(deviceId: deviceId, host: newIp, user: user);
+        _profileStore.upsertProfile(profile.copyWith(host: newIp));
+        _upsertSshConfig(
+          deviceId: deviceId,
+          host: newIp,
+          user: user,
+          sshPort: sshPort,
+        );
         _replaceDeviceIpInConfigs(
           deviceId: deviceId,
           user: user,
           newIp: newIp,
         );
-        return 'Updated IP address for "$deviceId" to $newIp in ~/.ssh/config, custom_devices.json, and postBuild hook.';
+        return 'Updated IP address for "$deviceId" to $newIp in config.json, ~/.ssh/config, custom_devices.json, and postBuild hook.';
 
       default:
         throw ArgumentError('Unsupported action: $action');
@@ -1150,7 +1520,6 @@ Write-Output "RELEASE_ZIP_READY"
   Future<Map<String, String>> _getLocalFlutterVersionInfo({
     String? projectPath,
   }) async {
-    // Check .fvmrc if projectPath is provided
     if (projectPath != null && projectPath.isNotEmpty) {
       final fvmrc = File('$projectPath/.fvmrc');
       if (fvmrc.existsSync()) {
@@ -1207,12 +1576,15 @@ Write-Output "RELEASE_ZIP_READY"
   Future<ProcessResult> _runSshPowerShell(
     String host,
     String user,
-    String script,
-  ) {
+    String script, {
+    int sshPort = 22,
+  }) {
     final encoded = base64Encode(
       _encodeUtf16Le(script),
     );
     return Process.run('ssh', <String>[
+      '-p',
+      '$sshPort',
       '-o',
       'BatchMode=yes',
       '$user@$host',
@@ -1251,6 +1623,7 @@ Write-Output "RELEASE_ZIP_READY"
     required String deviceId,
     required String host,
     required String user,
+    int sshPort = 22,
   }) {
     final home = Platform.environment['HOME'] ?? '';
     final configFile = File('$home/.ssh/config');
@@ -1263,7 +1636,7 @@ Write-Output "RELEASE_ZIP_READY"
 Host $deviceId
     HostName $host
     User $user
-    Port 22
+    Port $sshPort
     IdentityFile ~/.ssh/id_ed25519
     StrictHostKeyChecking accept-new
 ''';
@@ -1281,6 +1654,8 @@ Host $deviceId
     required String deviceLabel,
     required String host,
     required String user,
+    required int sshPort,
+    required bool useTcpPing,
     required String appName,
     required String remoteBaseDir,
     required String remoteBaseDirScp,
@@ -1310,9 +1685,16 @@ Host $deviceId
       (Object? d) => d is Map && d['id'] == deviceId,
     );
 
-    final pingCmd = Platform.isMacOS
-        ? <String>['ping', '-c', '1', '-t', '1', host]
-        : <String>['ping', '-c', '1', '-W', '1', host];
+    final List<String> pingCmd;
+    if (useTcpPing) {
+      pingCmd = Platform.isMacOS
+          ? <String>['nc', '-z', '-G', '2', host, '$sshPort']
+          : <String>['nc', '-z', '-w', '2', host, '$sshPort'];
+    } else {
+      pingCmd = Platform.isMacOS
+          ? <String>['ping', '-c', '1', '-t', '1', host]
+          : <String>['ping', '-c', '1', '-W', '1', host];
+    }
 
     final postBuildCmd = postBuildScriptPath != null
         ? <String>[
@@ -1326,7 +1708,7 @@ Host $deviceId
     devices.add(<String, Object?>{
       'id': deviceId,
       'label': deviceLabel,
-      'sdkNameAndVersion': 'Windows 11 x64 ($host)',
+      'sdkNameAndVersion': 'Windows 11 x64 ($host:$sshPort)',
       'platform': 'linux-x64',
       'enabled': true,
       'ping': pingCmd,
@@ -1334,6 +1716,8 @@ Host $deviceId
       'postBuild': postBuildCmd,
       'install': <String>[
         'scp',
+        '-P',
+        '$sshPort',
         '-r',
         '-o',
         'BatchMode=yes',
@@ -1345,6 +1729,8 @@ Host $deviceId
       ],
       'uninstall': <String>[
         'ssh',
+        '-p',
+        '$sshPort',
         '-o',
         'BatchMode=yes',
         '$user@$host',
@@ -1354,6 +1740,8 @@ Host $deviceId
       ],
       'runDebug': <String>[
         'ssh',
+        '-p',
+        '$sshPort',
         '-o',
         'BatchMode=yes',
         '$user@$host',
@@ -1363,6 +1751,8 @@ Host $deviceId
       ],
       'forwardPort': <String>[
         'ssh',
+        '-p',
+        '$sshPort',
         '-o',
         'BatchMode=yes',
         '-o',
@@ -1405,7 +1795,8 @@ Host $deviceId
     if (postBuildFile.existsSync()) {
       final updated = postBuildFile.readAsStringSync().replaceAllMapped(
             RegExp(
-                RegExp.escape(user) + r'@\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}'),
+              RegExp.escape(user) + r'@\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}',
+            ),
             (_) => '$user@$newIp',
           );
       postBuildFile.writeAsStringSync(updated);

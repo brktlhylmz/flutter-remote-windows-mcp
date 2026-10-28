@@ -1,22 +1,37 @@
+import 'dart:io';
+
 import 'package:flutter_remote_windows_mcp/flutter_remote_windows_mcp.dart';
 import 'package:test/test.dart';
 
 void main() {
-  group('WindowsRemoteTools', () {
+  group('WindowsRemoteTools & DeviceProfileStore', () {
+    late Directory tempDir;
+    late DeviceProfileStore store;
     late WindowsRemoteTools tools;
 
     setUp(() {
-      tools = WindowsRemoteTools();
+      tempDir = Directory.systemTemp.createTempSync('flutter_remote_test_');
+      store = DeviceProfileStore(
+        configFilePath: '${tempDir.path}/config.json',
+      );
+      tools = WindowsRemoteTools(profileStore: store);
     });
 
-    test('exposes all 11 MCP tools with valid inputSchemas', () {
+    tearDown(() {
+      if (tempDir.existsSync()) {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
+
+    test('exposes all 12 MCP tools with valid inputSchemas', () {
       final definitions = tools.getToolDefinitions();
-      expect(definitions, hasLength(11));
+      expect(definitions, hasLength(12));
 
       final names = definitions.map((d) => d['name'] as String).toList();
       expect(
         names,
         containsAll(<String>[
+          'manage_device_profiles',
           'generate_ssh_pairing',
           'check_remote_windows',
           'install_windows_toolchain',
@@ -36,6 +51,44 @@ void main() {
         expect((def['description'] as String).isNotEmpty, isTrue);
         expect(def['inputSchema'], isA<Map<String, Object?>>());
       }
+    });
+
+    test('saves, resolves, and switches default device profiles in config.json',
+        () {
+      store.upsertProfile(
+        const DeviceProfile(
+          deviceId: 'rog-ally',
+          label: 'ASUS ROG Ally',
+          host: '192.168.1.50',
+          user: 'devuser',
+        ),
+        setAsDefault: true,
+      );
+      store.upsertProfile(
+        const DeviceProfile(
+          deviceId: 'office-pc',
+          label: 'Office Windows PC (Tailscale)',
+          host: '100.84.10.25',
+          user: 'officeuser',
+          sshPort: 2222,
+          keepHeadlessSessionAlive: true,
+        ),
+      );
+
+      // Resolves default profile when no args are passed
+      final resolvedDefault = store.resolve(<String, Object?>{});
+      expect(resolvedDefault.deviceId, equals('rog-ally'));
+      expect(resolvedDefault.host, equals('192.168.1.50'));
+      expect(resolvedDefault.sshPort, equals(22));
+
+      // Resolves specific profile by device_id without repeating host/user/ssh_port
+      final resolvedOffice = store.resolve(<String, Object?>{
+        'device_id': 'office-pc',
+      });
+      expect(resolvedOffice.host, equals('100.84.10.25'));
+      expect(resolvedOffice.user, equals('officeuser'));
+      expect(resolvedOffice.sshPort, equals(2222));
+      expect(resolvedOffice.keepHeadlessSessionAlive, isTrue);
     });
   });
 
@@ -58,6 +111,17 @@ void main() {
       expect(script, contains('FLUTTER_ENGINE_SWITCHES'));
       expect(script, contains('active_app.pid'));
       expect(script, contains('running.lock'));
+    });
+
+    test('runDebugScript re-attaches disconnected RDP/VM sessions via tscon',
+        () {
+      final script = PowerShellTemplates.runDebugScript(
+        remoteBaseDir: r'C:\Users\dev\flutter_remote',
+        defaultAppName: 'my_flutter_app',
+        scheduledTaskName: 'FlutterRemoteRun',
+      );
+      expect(script, contains('keep_headless.flag'));
+      expect(script, contains('tscon.exe'));
     });
 
     test(

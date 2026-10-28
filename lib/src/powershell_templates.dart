@@ -117,6 +117,18 @@ Remove-Item \$errLog -Force -ErrorAction SilentlyContinue
 (\$args -join " ") | Set-Content -Path "\$dir\\engine_switches.txt" -Encoding Ascii
 "running" | Set-Content -Path "\$dir\\running.lock" -Encoding Ascii
 
+# If running on a headless VM or remote PC where RDP was disconnected ("Disc"),
+# re-attach the user's session to the physical/virtual console so GPU & Session 1 GUI work.
+if (Test-Path "\$dir\\keep_headless.flag") {
+  \$q = query session \$env:USERNAME 2>\$null
+  foreach (\$line in \$q) {
+    if (\$line -match "\\s+(\\d+)\\s+Disc") {
+      \$sid = \$Matches[1]
+      tscon.exe \$sid /dest:console 2>\$null | Out-Null
+    }
+  }
+}
+
 try {
   schtasks /Run /TN "$scheduledTaskName" | Out-Null
 
@@ -338,11 +350,13 @@ if (\$hr -eq 0) {
     required String user,
     required String remoteBaseDir,
     required String remoteBaseDirScp,
+    int sshPort = 22,
   }) {
     return '''#!/bin/sh
 set -e
 APP_NAME="\$1"
 ENGINE_REV="\$2"
+SSH_PORT="$sshPort"
 
 if [ -z "\$APP_NAME" ]; then
   exit 0
@@ -368,28 +382,28 @@ if [ -f "\$HASH_FILE" ]; then
 fi
 
 # Check if the runner exe already exists on the remote Windows machine
-REMOTE_EXISTS=\$(ssh -o BatchMode=yes $user@$host "powershell -NoProfile -Command \\"if ((Test-Path '$remoteBaseDir\\\\runners\\\\\$APP_NAME\\\\\$APP_NAME.exe') -or (Test-Path '$remoteBaseDir\\\\\$APP_NAME\\\\\$APP_NAME.exe')) { Write-Output 'YES' } else { Write-Output 'NO' }\\"" | tr -d '\\r\\n')
+REMOTE_EXISTS=\$(ssh -p "\$SSH_PORT" -o BatchMode=yes $user@$host "powershell -NoProfile -Command \\"if ((Test-Path '$remoteBaseDir\\\\runners\\\\\$APP_NAME\\\\\$APP_NAME.exe') -or (Test-Path '$remoteBaseDir\\\\\$APP_NAME\\\\\$APP_NAME.exe')) { Write-Output 'YES' } else { Write-Output 'NO' }\\"" | tr -d '\\r\\n')
 
 if [ "\$CURRENT_HASH" = "\$OLD_HASH" ] && [ "\$REMOTE_EXISTS" = "YES" ]; then
   exit 0
 fi
 
-echo "[flutter-remote-windows] Native Windows runner change detected for \$APP_NAME. Syncing and building on $host..."
+echo "[flutter-remote-windows] Native Windows runner change detected for \$APP_NAME. Syncing and building on $host:\$SSH_PORT..."
 
-ssh -o BatchMode=yes $user@$host "powershell -NoProfile -Command \\"New-Item -Force -ItemType Directory '$remoteBaseDir\\\\projects\\\\\$APP_NAME' | Out-Null; New-Item -Force -ItemType Directory '$remoteBaseDir\\\\runners\\\\\$APP_NAME' | Out-Null; New-Item -Force -ItemType Directory '$remoteBaseDir\\\\\$APP_NAME' | Out-Null\\""
+ssh -p "\$SSH_PORT" -o BatchMode=yes $user@$host "powershell -NoProfile -Command \\"New-Item -Force -ItemType Directory '$remoteBaseDir\\\\projects\\\\\$APP_NAME' | Out-Null; New-Item -Force -ItemType Directory '$remoteBaseDir\\\\runners\\\\\$APP_NAME' | Out-Null; New-Item -Force -ItemType Directory '$remoteBaseDir\\\\\$APP_NAME' | Out-Null\\""
 
 ITEMS="pubspec.yaml lib windows"
 [ -f l10n.yaml ] && ITEMS="\$ITEMS l10n.yaml"
 [ -d assets ] && ITEMS="\$ITEMS assets"
 
-scp -r -o BatchMode=yes \$ITEMS $user@$host:$remoteBaseDirScp/projects/\$APP_NAME/
+scp -P "\$SSH_PORT" -r -o BatchMode=yes \$ITEMS $user@$host:$remoteBaseDirScp/projects/\$APP_NAME/
 
 TARGET="lib/main.dart"
 if [ ! -f "lib/main.dart" ] && [ -f "lib/main_development.dart" ]; then
   TARGET="lib/main_development.dart"
 fi
 
-ssh -o BatchMode=yes $user@$host "powershell -NoProfile -Command \\"Set-Location '$remoteBaseDir\\\\projects\\\\\$APP_NAME'; \\\$fl = if (Test-Path '\\\$env:USERPROFILE\\\\fvm\\\\default\\\\bin\\\\flutter.bat') { '\\\$env:USERPROFILE\\\\fvm\\\\default\\\\bin\\\\flutter.bat' } else { 'flutter.bat' }; & \\\$fl build windows --debug -t \$TARGET; Copy-Item -Recurse -Force '$remoteBaseDir\\\\projects\\\\\$APP_NAME\\\\build\\\\windows\\\\x64\\\\runner\\\\Debug\\\\*' '$remoteBaseDir\\\\runners\\\\\$APP_NAME'; Copy-Item -Recurse -Force '$remoteBaseDir\\\\projects\\\\\$APP_NAME\\\\build\\\\windows\\\\x64\\\\runner\\\\Debug\\\\*' '$remoteBaseDir\\\\\$APP_NAME'\\""
+ssh -p "\$SSH_PORT" -o BatchMode=yes $user@$host "powershell -NoProfile -Command \\"Set-Location '$remoteBaseDir\\\\projects\\\\\$APP_NAME'; \\\$fl = if (Test-Path '\\\$env:USERPROFILE\\\\fvm\\\\default\\\\bin\\\\flutter.bat') { '\\\$env:USERPROFILE\\\\fvm\\\\default\\\\bin\\\\flutter.bat' } else { 'flutter.bat' }; & \\\$fl build windows --debug -t \$TARGET; Copy-Item -Recurse -Force '$remoteBaseDir\\\\projects\\\\\$APP_NAME\\\\build\\\\windows\\\\x64\\\\runner\\\\Debug\\\\*' '$remoteBaseDir\\\\runners\\\\\$APP_NAME'; Copy-Item -Recurse -Force '$remoteBaseDir\\\\projects\\\\\$APP_NAME\\\\build\\\\windows\\\\x64\\\\runner\\\\Debug\\\\*' '$remoteBaseDir\\\\\$APP_NAME'\\""
 
 echo "\$CURRENT_HASH" > "\$HASH_FILE"
 echo "[flutter-remote-windows] Windows runner for \$APP_NAME updated successfully!"
