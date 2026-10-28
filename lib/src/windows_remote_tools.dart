@@ -192,7 +192,7 @@ class WindowsRemoteTools {
       <String, Object?>{
         'name': 'take_remote_screenshot',
         'description':
-            'Captures a full-resolution (DPI-aware) PNG screenshot of the remote Windows device physical screen (Interactive Session 1) and downloads it to the local machine so you or the AI agent can inspect the live UI.',
+            'Privacy-safe window-only screenshot tool: captures ONLY the target Flutter application window (using Win32 PrintWindow + DWMWA_EXTENDED_FRAME_BOUNDS) in Interactive Session 1 and downloads it to the local machine. Never captures the Windows desktop, taskbar, or other personal windows, and refuses to capture if the target Flutter app is not running.',
         'inputSchema': <String, Object?>{
           'type': 'object',
           'properties': <String, Object?>{
@@ -203,6 +203,10 @@ class WindowsRemoteTools {
             'user': <String, Object?>{
               'type': 'string',
               'description': 'Windows SSH username.',
+            },
+            'app_name': <String, Object?>{
+              'type': 'string',
+              'description': 'Optional Flutter binary name (e.g. "gyrodeck_desktop"). Defaults to the currently active remote Flutter app.',
             },
             'output_path': <String, Object?>{
               'type': 'string',
@@ -794,20 +798,28 @@ Write-Output "Runner updated in $remoteBaseDir\\runners\\$appName"
   Future<String> _takeRemoteScreenshot(Map<String, Object?> args) async {
     final host = args['host'] as String;
     final user = args['user'] as String;
+    final appName = (args['app_name'] as String?)?.trim() ?? '';
     final outputPath =
         (args['output_path'] as String?) ?? '/tmp/windows_remote_screenshot.png';
     final remoteBaseDir = 'C:\\Users\\$user\\flutter_remote';
     final remoteBaseDirScp = 'C:/Users/$user/flutter_remote';
 
+    final setTargetCmd = appName.isNotEmpty
+        ? '"$appName" | Set-Content -Path "$remoteBaseDir\\screenshot_target.txt" -Encoding Ascii'
+        : 'Remove-Item "$remoteBaseDir\\screenshot_target.txt" -Force -ErrorAction SilentlyContinue';
+
     final capturePs = '''
-Remove-Item "$remoteBaseDir\\screenshot.png","$remoteBaseDir\\screenshot.done" -Force -ErrorAction SilentlyContinue
+$setTargetCmd
+Remove-Item "$remoteBaseDir\\screenshot.png","$remoteBaseDir\\screenshot.done","$remoteBaseDir\\screenshot.status" -Force -ErrorAction SilentlyContinue
 schtasks /Run /TN FlutterRemoteScreenshot | Out-Null
 \$count = 0
 while (!(Test-Path "$remoteBaseDir\\screenshot.done") -and (\$count -lt 50)) {
   Start-Sleep -Milliseconds 100
   \$count++
 }
-if (Test-Path "$remoteBaseDir\\screenshot.png") {
+if (Test-Path "$remoteBaseDir\\screenshot.status") {
+  Get-Content "$remoteBaseDir\\screenshot.status" -Raw
+} elseif (Test-Path "$remoteBaseDir\\screenshot.png") {
   Write-Output "CAPTURED"
 } else {
   Write-Output "FAILED"
@@ -815,8 +827,9 @@ if (Test-Path "$remoteBaseDir\\screenshot.png") {
 ''';
 
     final res = await _runSshPowerShell(host, user, capturePs);
-    if (!res.stdout.toString().contains('CAPTURED')) {
-      return 'Failed to capture Session 1 screenshot on $host. Ensure setup_flutter_custom_device has been run.';
+    final statusOut = res.stdout.toString().trim();
+    if (!statusOut.contains('CAPTURED')) {
+      return 'Screenshot blocked or failed on $host: $statusOut';
     }
 
     final scpRes = await Process.run('scp', <String>[
@@ -829,7 +842,7 @@ if (Test-Path "$remoteBaseDir\\screenshot.png") {
       return 'Failed to download screenshot via SCP:\n${scpRes.stderr}';
     }
 
-    return 'Screenshot captured from $host (Session 1) and saved to: $outputPath';
+    return 'Window-only screenshot captured from $host (Session 1) and saved to: $outputPath';
   }
 
   Future<String> _setDevPowerMode(Map<String, Object?> args) async {

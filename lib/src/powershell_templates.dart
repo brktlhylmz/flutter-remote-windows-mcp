@@ -75,6 +75,8 @@ for (\$i = 0; \$i -lt \$switches.Count; \$i++) {
   -WindowStyle Normal `
   -PassThru
 
+\$proc.Id.ToString() | Set-Content -Path "\$dir\\active_app.pid" -Encoding Ascii
+
 while ((Test-Path "\$dir\\running.lock") -and (!\$proc.HasExited)) {
   Start-Sleep -Milliseconds 500
 }
@@ -82,6 +84,7 @@ while ((Test-Path "\$dir\\running.lock") -and (!\$proc.HasExited)) {
 if (!\$proc.HasExited) {
   Stop-Process -Id \$proc.Id -Force -ErrorAction SilentlyContinue
 }
+Remove-Item "\$dir\\active_app.pid" -Force -ErrorAction SilentlyContinue
 ''';
   }
 
@@ -203,32 +206,126 @@ while (\$true) {
   }
 
   /// Generates `screenshot_session1.ps1` which runs in Session 1 (Interactive Desktop)
-  /// with DPI awareness enabled and saves the physical screen as a PNG file.
+  /// with DPI awareness enabled and captures ONLY the target Flutter application's window
+  /// using Win32 `PrintWindow(PW_RENDERFULLCONTENT)` and `DwmGetWindowAttribute`.
+  /// Refuses to capture if the target Flutter app is not running or is minimized.
   static String screenshotSession1Script({
     required String remoteBaseDir,
   }) {
     return '''
 \$ErrorActionPreference = "SilentlyContinue"
-Add-Type -AssemblyName System.Windows.Forms
+\$dir = "$remoteBaseDir"
 Add-Type -AssemblyName System.Drawing
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
-public class DpiHelper {
+
+public class WinCapture {
+  [StructLayout(LayoutKind.Sequential)]
+  public struct RECT {
+    public int Left;
+    public int Top;
+    public int Right;
+    public int Bottom;
+  }
+
   [DllImport("user32.dll")]
   public static extern bool SetProcessDPIAware();
+
+  [DllImport("user32.dll")]
+  public static extern bool IsIconic(IntPtr hWnd);
+
+  [DllImport("user32.dll")]
+  public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+  [DllImport("user32.dll")]
+  public static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, uint nFlags);
+
+  [DllImport("dwmapi.dll")]
+  public static extern int DwmGetWindowAttribute(IntPtr hwnd, int dwAttribute, out RECT pvAttribute, int cbAttribute);
 }
 "@
-[DpiHelper]::SetProcessDPIAware() | Out-Null
+[WinCapture]::SetProcessDPIAware() | Out-Null
 
-\$bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
-\$bmp = New-Object System.Drawing.Bitmap(\$bounds.Width, \$bounds.Height)
-\$graphics = [System.Drawing.Graphics]::FromImage(\$bmp)
-\$graphics.CopyFromScreen(\$bounds.Location, [System.Drawing.Point]::Empty, \$bounds.Size)
-\$bmp.Save("$remoteBaseDir\\screenshot.png", [System.Drawing.Imaging.ImageFormat]::Png)
-\$graphics.Dispose()
-\$bmp.Dispose()
-"done" | Set-Content -Path "$remoteBaseDir\\screenshot.done" -Encoding Ascii
+\$appName = ""
+if (Test-Path "\$dir\\screenshot_target.txt") {
+  \$t = (Get-Content "\$dir\\screenshot_target.txt" -Raw).Trim()
+  if (\$t.Length -gt 0) { \$appName = \$t }
+}
+if (\$appName.Length -eq 0 -and (Test-Path "\$dir\\active_app.txt")) {
+  \$t = (Get-Content "\$dir\\active_app.txt" -Raw).Trim()
+  if (\$t.Length -gt 0) { \$appName = \$t }
+}
+
+\$proc = \$null
+if (Test-Path "\$dir\\active_app.pid") {
+  \$pidStr = (Get-Content "\$dir\\active_app.pid" -Raw).Trim()
+  if (\$pidStr -match "^\\d+\$") {
+    \$candidate = Get-Process -Id ([int]\$pidStr) -ErrorAction SilentlyContinue
+    if (\$candidate -and \$candidate.MainWindowHandle -ne [IntPtr]::Zero) {
+      if (\$appName.Length -eq 0 -or \$candidate.ProcessName -eq \$appName) {
+        \$proc = \$candidate
+      }
+    }
+  }
+}
+if (\$null -eq \$proc -and \$appName.Length -gt 0) {
+  \$proc = Get-Process -Name \$appName -ErrorAction SilentlyContinue |
+    Where-Object { \$_.MainWindowHandle -ne [IntPtr]::Zero } |
+    Select-Object -First 1
+}
+
+if (\$null -eq \$proc -or \$proc.MainWindowHandle -eq [IntPtr]::Zero) {
+  "ERR_NO_APP: Target Flutter application (\$appName) is not running or has no active window. Desktop capture blocked for privacy." | Set-Content -Path "\$dir\\screenshot.status" -Encoding Ascii
+  "done" | Set-Content -Path "\$dir\\screenshot.done" -Encoding Ascii
+  exit 0
+}
+
+\$hWnd = \$proc.MainWindowHandle
+if ([WinCapture]::IsIconic(\$hWnd)) {
+  "ERR_MINIMIZED: Target Flutter application (\$appName) window is minimized. Desktop capture blocked for privacy." | Set-Content -Path "\$dir\\screenshot.status" -Encoding Ascii
+  "done" | Set-Content -Path "\$dir\\screenshot.done" -Encoding Ascii
+  exit 0
+}
+
+\$rect = New-Object WinCapture+RECT
+[WinCapture]::GetWindowRect(\$hWnd, [ref]\$rect) | Out-Null
+\$w = \$rect.Right - \$rect.Left
+\$h = \$rect.Bottom - \$rect.Top
+if (\$w -le 0 -or \$h -le 0) {
+  "ERR_BOUNDS: Invalid window dimensions for \$appName." | Set-Content -Path "\$dir\\screenshot.status" -Encoding Ascii
+  "done" | Set-Content -Path "\$dir\\screenshot.done" -Encoding Ascii
+  exit 0
+}
+
+\$bmp = New-Object System.Drawing.Bitmap(\$w, \$h)
+\$g = [System.Drawing.Graphics]::FromImage(\$bmp)
+\$hdc = \$g.GetHdc()
+# PW_RENDERFULLCONTENT = 2 renders DirectComposition/Flutter surface directly from DWM
+[WinCapture]::PrintWindow(\$hWnd, \$hdc, 2) | Out-Null
+\$g.ReleaseHdc(\$hdc)
+\$g.Dispose()
+
+# Crop invisible Windows 10/11 drop-shadow resize borders using DWMWA_EXTENDED_FRAME_BOUNDS (9)
+\$dwmRect = New-Object WinCapture+RECT
+\$hr = [WinCapture]::DwmGetWindowAttribute(\$hWnd, 9, [ref]\$dwmRect, [System.Runtime.InteropServices.Marshal]::SizeOf(\$dwmRect))
+\$finalBmp = \$bmp
+if (\$hr -eq 0) {
+  \$cropX = [Math]::Max(0, \$dwmRect.Left - \$rect.Left)
+  \$cropY = [Math]::Max(0, \$dwmRect.Top - \$rect.Top)
+  \$cropW = [Math]::Min(\$w - \$cropX, \$dwmRect.Right - \$dwmRect.Left)
+  \$cropH = [Math]::Min(\$h - \$cropY, \$dwmRect.Bottom - \$dwmRect.Top)
+  if (\$cropW -gt 0 -and \$cropH -gt 0 -and (\$cropW -ne \$w -or \$cropH -ne \$h)) {
+    \$cropRect = New-Object System.Drawing.Rectangle(\$cropX, \$cropY, \$cropW, \$cropH)
+    \$finalBmp = \$bmp.Clone(\$cropRect, \$bmp.PixelFormat)
+    \$bmp.Dispose()
+  }
+}
+
+\$finalBmp.Save("\$dir\\screenshot.png", [System.Drawing.Imaging.ImageFormat]::Png)
+\$finalBmp.Dispose()
+"CAPTURED" | Set-Content -Path "\$dir\\screenshot.status" -Encoding Ascii
+"done" | Set-Content -Path "\$dir\\screenshot.done" -Encoding Ascii
 ''';
   }
 
