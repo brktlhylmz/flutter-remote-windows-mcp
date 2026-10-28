@@ -1725,9 +1725,8 @@ Write-Output "RELEASE_ZIP_READY"
       if (rootUri.startsWith('file://')) {
         srcPath = Uri.parse(rootUri).toFilePath();
       } else {
-        srcPath = Uri.file('$projectPath/.dart_tool/')
-            .resolve(rootUri)
-            .toFilePath();
+        srcPath =
+            Uri.file('$projectPath/.dart_tool/').resolve(rootUri).toFilePath();
       }
       if (srcPath.endsWith('/') || srcPath.endsWith(r'\')) {
         srcPath = srcPath.substring(0, srcPath.length - 1);
@@ -1767,9 +1766,8 @@ Write-Output "RELEASE_ZIP_READY"
   void _copyPackageDirectory(Directory src, Directory dst) {
     const ignoredNames = <String>{'.git', '.dart_tool', 'build', '.fvm'};
     for (final entity in src.listSync(followLinks: false)) {
-      final name = entity.uri.pathSegments
-          .where((s) => s.isNotEmpty)
-          .lastOrNull;
+      final name =
+          entity.uri.pathSegments.where((s) => s.isNotEmpty).lastOrNull;
       if (name == null || ignoredNames.contains(name)) continue;
       if (entity is Directory) {
         final childDst = Directory('${dst.path}/$name')
