@@ -237,7 +237,7 @@ final class DeviceProfileStore {
     };
     final deviceId = (requestedId != null && requestedId.isNotEmpty)
         ? requestedId
-        : (base?.deviceId ?? defaultId ?? 'rog-ally');
+        : (base?.deviceId ?? defaultId ?? 'windows-pc');
     final label = switch (args['device_label']) {
       final String s when s.trim().isNotEmpty => s.trim(),
       _ => base?.label ?? '$deviceId (Wireless Windows)',

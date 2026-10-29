@@ -5,7 +5,7 @@
 [![Dart SDK](https://img.shields.io/badge/Dart-%3E%3D3.5.0-0175C2?logo=dart)](https://dart.dev)
 [![MCP](https://img.shields.io/badge/MCP-Model%20Context%20Protocol-6E56CF)](https://modelcontextprotocol.io)
 
-A zero-dependency **Model Context Protocol (MCP)** server written in pure Dart that automates wireless **Flutter Windows Desktop** development, `flutter custom-devices` provisioning, native C++ runner building, and live **Interactive Session 1 GUI debugging** (with sub-second **Hot Reload** and **VS Code `F5` debugging**) directly from **macOS or Linux** onto any Windows 10/11 machine or handheld (**ASUS ROG Ally**, **Lenovo Legion Go**, **MSI Claw**, or a remote Windows PC).
+A zero-dependency **Model Context Protocol (MCP)** server written in pure Dart that automates wireless **Flutter Windows Desktop** development, `flutter custom-devices` provisioning, native C++ runner building, and live **Interactive Session 1 GUI debugging** (with sub-second **Hot Reload** and **VS Code `F5` debugging**) directly from **macOS or Linux** onto any remote Windows 10/11 machine, laptop, or cloud VM.
 
 ---
 
@@ -50,7 +50,7 @@ flowchart LR
     Hook["Smart postBuild Hook (.sh)"]
   end
 
-  subgraph Win["Windows 11 Device / Handheld (ROG Ally, etc.)"]
+  subgraph Win["Remote Windows 10/11 Device / PC"]
     subgraph S0["Session 0 (OpenSSH Server)"]
       RunDebug["run_debug.ps1 & forward_port.ps1"]
       Builder["FVM + Flutter SDK + VS 2022 C++ Build Tools"]
@@ -130,8 +130,8 @@ Once the MCP server is connected to your AI coding assistant, you can set up a b
 2. **Install or Verify the Windows Toolchain (`check_remote_windows` & `install_windows_toolchain`)**
    - Ask your agent: *"Check my Windows device at `192.168.1.50` (user `devuser`) and install FVM, Sidekick, Flutter, and Visual Studio Build Tools if missing."*
 3. **Register the Wireless Custom Device (`setup_flutter_custom_device`)**
-   - Ask your agent: *"Set up my Windows device `192.168.1.50` as a Flutter custom device named `rog-ally` for my project."*
-4. **Press `F5` in VS Code (or run `flutter run -d rog-ally`)!**
+   - Ask your agent: *"Set up my Windows device `192.168.1.50` as a Flutter custom device named `windows-pc` for my project."*
+4. **Press `F5` in VS Code (or run `flutter run -d windows-pc`)!**
    - The smart `postBuild` hook will build the Windows C++ runner on the first run and cache it. Subsequent runs and **Hot Reloads (`r`)** take less than a second!
 
 ---
@@ -161,11 +161,11 @@ Device profiles are automatically stored in `~/.config/flutter_remote_windows/co
 
 ```json
 {
-  "default_device": "rog-ally",
+  "default_device": "windows-pc",
   "devices": {
-    "rog-ally": {
-      "device_id": "rog-ally",
-      "label": "ASUS ROG Ally (Wireless)",
+    "windows-pc": {
+      "device_id": "windows-pc",
+      "label": "Remote Windows PC (Wireless)",
       "host": "192.168.1.50",
       "user": "devuser",
       "ssh_port": 22,

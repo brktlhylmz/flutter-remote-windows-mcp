@@ -26,7 +26,7 @@ final class WindowsRemoteTools {
   static const String serverInstructions =
       'MANDATORY RULES FOR REMOTE WINDOWS FLUTTER DEVELOPMENT: '
       '1) Whenever pubspec.yaml changes (adding/updating native Windows C++ plugins like window_manager, ffi, sqlite3, screen_retriever, etc.), '
-      'when MissingPluginException occurs on a remote Windows device (e.g. ASUS ROG Ally / Windows Wireless), '
+      'when MissingPluginException occurs on a remote Windows device (e.g. Remote Windows PC / Windows Wireless), '
       'or when a postBuild hook fails, ALWAYS call `sync_and_rebuild_windows_runner` instead of running manual ssh/scp commands or editing ~/.config/flutter/post_build_*.sh. '
       '2) Use `remote_app_control` to check status/logs/stop/launch the remote Windows app in Session 1, and `take_remote_screenshot` to capture its window.';
 
@@ -34,7 +34,7 @@ final class WindowsRemoteTools {
 name: flutter-remote-windows
 description: >-
   MANDATORY when running, building, or debugging Flutter apps on a Remote Windows
-  device (ASUS ROG Ally, Windows Wireless, custom-devices), when MissingPluginException
+  device (Remote Windows PC, Windows Wireless, custom-devices), when MissingPluginException
   or postBuild errors occur on Windows, or after adding native plugins (window_manager,
   ffi, sqlite3, etc.) to pubspec.yaml. Always use the flutter-remote-windows MCP server
   tools (sync_and_rebuild_windows_runner, remote_app_control, take_remote_screenshot,
@@ -43,7 +43,7 @@ description: >-
 
 # Flutter Remote Windows MCP Workflow
 
-Whenever the user is targeting a remote Windows device (such as **ASUS ROG Ally (Windows Wireless)** or any device configured via `custom_devices.json`):
+Whenever the user is targeting a remote Windows device (such as **Remote Windows PC (Windows Wireless)** or any device configured via `custom_devices.json`):
 
 1. **After Adding/Updating Plugins in `pubspec.yaml` or on `MissingPluginException`:**
    - Native Windows C++ plugins (`window_manager`, `screen_retriever`, `ffi`, `sqlite3_flutter_libs`, etc.) require rebuilding the remote Windows runner executable (`<app_name>.exe`).
@@ -106,7 +106,7 @@ Whenever the user is targeting a remote Windows device (such as **ASUS ROG Ally 
       <String, Object?>{
         'name': 'manage_device_profiles',
         'description':
-            'Lists, saves, removes, or sets the default remote Windows device profile in ~/.config/flutter_remote_windows/config.json. Supports LAN handhelds (ROG Ally) as well as remote office PCs and headless cloud VMs (custom ssh_port, TCP ping, and RDP session keep-alive). Once a profile is saved, other tools do not require repeating host/user/ssh_port.',
+            'Lists, saves, removes, or sets the default remote Windows device profile in ~/.config/flutter_remote_windows/config.json. Supports local network Windows PCs and laptops as well as remote office PCs and headless cloud VMs (custom ssh_port, TCP ping, and RDP session keep-alive). Once a profile is saved, other tools do not require repeating host/user/ssh_port.',
         'inputSchema': <String, Object?>{
           'type': 'object',
           'properties': <String, Object?>{
@@ -118,7 +118,7 @@ Whenever the user is targeting a remote Windows device (such as **ASUS ROG Ally 
             'device_id': <String, Object?>{
               'type': 'string',
               'description':
-                  'Profile ID (e.g. "rog-ally", "office-pc", "win-vm").',
+                  'Profile ID (e.g. "windows-pc", "office-pc", "win-vm").',
             },
             'device_label': <String, Object?>{
               'type': 'string',
@@ -310,12 +310,12 @@ Whenever the user is targeting a remote Windows device (such as **ASUS ROG Ally 
             'device_id': <String, Object?>{
               'type': 'string',
               'description':
-                  'Short device ID for flutter run -d <device_id> (e.g. "rog-ally" or "office-pc").',
+                  'Short device ID for flutter run -d <device_id> (e.g. "windows-pc" or "office-pc").',
             },
             'device_label': <String, Object?>{
               'type': 'string',
               'description':
-                  'Display name in flutter devices (e.g. "ASUS ROG Ally (Wireless)").',
+                  'Display name in flutter devices (e.g. "Remote Windows PC (Wireless)").',
             },
             'host': <String, Object?>{
               'type': 'string',
@@ -447,7 +447,7 @@ Whenever the user is targeting a remote Windows device (such as **ASUS ROG Ally 
       <String, Object?>{
         'name': 'set_dev_power_mode',
         'description':
-            'Prevents the Windows handheld/PC from turning off its display or entering Modern Standby sleep during wireless development, or restores default power timeouts.',
+            'Prevents the remote Windows device from turning off its display or entering Modern Standby sleep during wireless development, or restores default power timeouts.',
         'inputSchema': <String, Object?>{
           'type': 'object',
           'properties': <String, Object?>{
@@ -488,7 +488,7 @@ Whenever the user is targeting a remote Windows device (such as **ASUS ROG Ally 
             'device_id': <String, Object?>{
               'type': 'string',
               'description':
-                  'Device ID in config.json / custom_devices.json (default: default profile or "rog-ally").',
+                  'Device ID in config.json / custom_devices.json (default: default profile or "windows-pc").',
             },
             'user': <String, Object?>{
               'type': 'string',
@@ -498,7 +498,7 @@ Whenever the user is targeting a remote Windows device (such as **ASUS ROG Ally 
             'windows_hostname': <String, Object?>{
               'type': 'string',
               'description':
-                  'Optional Windows machine hostname (e.g. "rog-ally" or "windows-pc"). If omitted, scans ARP table for any host accepting SSH for user.',
+                  'Optional Windows machine hostname (e.g. "windows-pc" or "office-pc"). If omitted, scans ARP table for any host accepting SSH for user.',
             },
           },
         },
@@ -1321,7 +1321,7 @@ Write-Output "Power mode restored to default timeouts."
     final defaultId = _profileStore.getDefaultDeviceId();
     final deviceId = (requestedId != null && requestedId.isNotEmpty)
         ? requestedId
-        : (defaultId ?? 'rog-ally');
+        : (defaultId ?? 'windows-pc');
     final existing = profiles[deviceId];
 
     final user = ((args['user'] as String?)?.trim().isNotEmpty == true)

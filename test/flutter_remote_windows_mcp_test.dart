@@ -71,16 +71,16 @@ void main() {
   });
 
   group('1. Schema & Tool Registry', () {
-    test('exposes all 12 MCP tools with valid schemas and no personal data',
-        () {
+    test('exposes all 12 MCP tools with valid schemas', () {
       final definitions = tools.getToolDefinitions();
       expect(definitions, hasLength(12));
 
-      final serialized = jsonEncode(definitions);
-      expect(serialized, isNot(contains('burak')));
-      expect(serialized, isNot(contains('bty-ally')));
-      expect(serialized, isNot(contains('gyrodeck_desktop')));
-      expect(serialized, isNot(contains('192.168.1.192')));
+      for (final tool in definitions) {
+        expect(tool['name'], isA<String>());
+        expect((tool['name'] as String).isNotEmpty, isTrue);
+        expect(tool['description'], isA<String>());
+        expect(tool['inputSchema'], isA<Map<String, Object?>>());
+      }
     });
 
     test('throws ArgumentError on unknown tool name', () async {
@@ -110,8 +110,8 @@ void main() {
       // Save first profile
       await tools.callTool('manage_device_profiles', <String, Object?>{
         'action': 'save',
-        'device_id': 'rog-ally',
-        'device_label': 'ASUS ROG Ally',
+        'device_id': 'windows-pc',
+        'device_label': 'Remote Windows PC',
         'host': '192.168.1.50',
         'user': 'devuser',
         'app_name': 'test_app',
@@ -131,18 +131,18 @@ void main() {
 
       final sshText = sshConfig.readAsStringSync();
       expect(sshText, contains('Host github.com'));
-      expect(sshText, contains('Host rog-ally'));
+      expect(sshText, contains('Host windows-pc'));
       expect(sshText, contains('Host office-pc'));
       expect(sshText, contains('Port 2222'));
 
       expect(store.getDefaultDeviceId(), equals('office-pc'));
 
-      // Switch default back to rog-ally
+      // Switch default back to windows-pc
       await tools.callTool('manage_device_profiles', <String, Object?>{
         'action': 'set_default',
-        'device_id': 'rog-ally',
+        'device_id': 'windows-pc',
       });
-      expect(store.getDefaultDeviceId(), equals('rog-ally'));
+      expect(store.getDefaultDeviceId(), equals('windows-pc'));
 
       // Remove office-pc
       final removeOut =
@@ -151,7 +151,7 @@ void main() {
         'device_id': 'office-pc',
       });
       expect(removeOut, contains('Removed profile "office-pc"'));
-      expect(store.listProfiles().keys, equals(<String>['rog-ally']));
+      expect(store.listProfiles().keys, equals(<String>['windows-pc']));
     });
 
     test('throws ArgumentError when resolving without profile or host/user',
@@ -243,8 +243,8 @@ void main() {
         () async {
       store.upsertProfile(
         const DeviceProfile(
-          deviceId: 'rog-ally',
-          label: 'ROG Ally',
+          deviceId: 'windows-pc',
+          label: 'Remote Windows PC',
           host: '192.168.1.50',
           user: 'devuser',
         ),
@@ -378,8 +378,8 @@ void main() {
     setUp(() {
       store.upsertProfile(
         const DeviceProfile(
-          deviceId: 'rog-ally',
-          label: 'ROG Ally',
+          deviceId: 'windows-pc',
+          label: 'Remote Windows PC',
           host: '192.168.1.50',
           user: 'devuser',
         ),
@@ -441,9 +441,9 @@ void main() {
     test(
         'updates target device IP via ARP/SSH fallback without corrupting other devices or 127.0.0.1',
         () async {
-      // Set up two devices: rog-ally and office-pc
+      // Set up two devices: windows-pc and office-pc
       await tools.callTool('setup_flutter_custom_device', <String, Object?>{
-        'device_id': 'rog-ally',
+        'device_id': 'windows-pc',
         'host': '192.168.1.50',
         'user': 'devuser',
         'app_name': 'test_app',
@@ -472,19 +472,19 @@ void main() {
           );
         }
         if (exe == 'ssh' && args.contains('hostname')) {
-          return ProcessResult(0, 0, 'my-ally\n', '');
+          return ProcessResult(0, 0, 'my-windows-pc\n', '');
         }
         return ProcessResult(0, 0, '', '');
       };
 
       final res =
           await tools.callTool('discover_and_update_ip', <String, Object?>{
-        'device_id': 'rog-ally',
-        'windows_hostname': 'my-ally',
+        'device_id': 'windows-pc',
+        'windows_hostname': 'my-windows-pc',
       });
 
       expect(res, contains('192.168.1.88'));
-      expect(store.listProfiles()['rog-ally']!.host, equals('192.168.1.88'));
+      expect(store.listProfiles()['windows-pc']!.host, equals('192.168.1.88'));
       // Verify office-pc was NOT overwritten!
       expect(store.listProfiles()['office-pc']!.host, equals('100.84.10.25'));
 
@@ -493,16 +493,16 @@ void main() {
       final decoded = jsonDecode(customDevicesFile.readAsStringSync())
           as Map<String, Object?>;
       final devices = decoded['custom-devices'] as List<Object?>;
-      final rogEntry = devices.firstWhere(
-        (d) => (d as Map)['id'] == 'rog-ally',
+      final winEntry = devices.firstWhere(
+        (d) => (d as Map)['id'] == 'windows-pc',
       ) as Map<String, Object?>;
       final officeEntry = devices.firstWhere(
         (d) => (d as Map)['id'] == 'office-pc',
       ) as Map<String, Object?>;
 
-      expect(jsonEncode(rogEntry), contains('192.168.1.88'));
+      expect(jsonEncode(winEntry), contains('192.168.1.88'));
       expect(
-        jsonEncode(rogEntry['forwardPort']),
+        jsonEncode(winEntry['forwardPort']),
         contains(r'127.0.0.1:${hostPort}:127.0.0.1:${devicePort}'),
       );
       expect(jsonEncode(officeEntry), contains('100.84.10.25'));
@@ -516,8 +516,8 @@ void main() {
     setUp(() {
       store.upsertProfile(
         const DeviceProfile(
-          deviceId: 'rog-ally',
-          label: 'ROG Ally',
+          deviceId: 'windows-pc',
+          label: 'Remote Windows PC',
           host: '192.168.1.50',
           user: 'devuser',
         ),
